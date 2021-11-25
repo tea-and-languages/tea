@@ -1,10 +1,10 @@
 Tea and Languages
 =================
 
-by Dr. Theresa V. Foley
+Theresa V. Foley
 
-Introduction
-------------
+Abstract
+--------
 
 This book is a collection of programming langauge implementations that are meant to be read.
 Each implementation strives for simplicity, so that you can casually read them while sitting down with a cup of tea (or coffee, or whatevery you like).
@@ -14,3 +14,9 @@ Things are presentd in the order that I hope best explains them to the reader, r
 
 The text is written as a short course in language design and implementation, but such pedagogy is not my primary goal.
 Rather, my goal is to share the admiration I have for language implementations that are elegant, simple, and parsiomnious: those that do more with less.
+
+Contents
+--------
+
+* [Chapter 0 - Preliminaries](0-preliminaries/)
+* [Chapter 1 - Forth](1-forth/)
