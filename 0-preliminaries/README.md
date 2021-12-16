@@ -1,94 +1,83 @@
 Preliminaries
 =============
 
-This section will cover all the "ground rules" that are required to understand the goals of the project and follow along with the later sections.
+Philosophy
+----------
 
-Representing Values
--------------------
+Our goal is to present a diverse set of programming languages, via working implementations, in a way that is both enjoyable to read and informative.
+These goals are often in tension, and we will discuss here the guiding principles that shaped our approach.
 
-Many of the languages being covered here are dynamic and/or interpreted languages.
-An important design decision when building an interpreter is how values in the language being implemented (the *object language*) will be represented in the language of the implementation.
+### Terminology
 
-A variable `x` in a dynamic language might refer to a value of any type, and different types may require different amounts of storage.
-A simple Boolean truth value needs only a single bit in theory, while a string holding the contents of a file could easily consume multiple megabytes.
+Whenever possible, we will strive to use uniform terminology for concepts across all the languages we present, even in cases where the history, community, and traditions of those languages use other terms.
+This is a trade-off, but one that we feel is appropriate.
+When reading our discussion of a language you are already familiar with, you may find it irksome when we do not use the terms you are used to; we hope that your familiarity with the underlying concepts will prevent any great confusion.
+On the other hand, when reading about languages you don't already know, you may benefit from being able to easily relate those concepts tha appear in more than one implementation.
 
-Two questions then arise around the representation of the value of a variable like `x`:
+### Implementation Language
 
-1. How do we determine the type of the value stored in `x`?
-2. Where do we put the bits that make up the value of `x`?
+All of the implementations we will present are in plain C (C89 to be precise).
 
-### Type Tags
+Using a single language for all the code simplifies comparisons between implementations.
+It also means that we can share code between the language implementations when it is convenient to do so.
 
-For languages that have a small and fixed number of types, it is often convenient to represent each type as an integer *tag* that can be associated with a value.
+We chose C as our implementation language, over various higher-level languages, because we want to make the low-level details of our implementations clear, and give readers confidence that there are no details being swept under the rug.
+For example, if we had chosen an implementation language that supported automatic garbage collection, it might have obscured the language implementation choices that pertain to memory management.
 
-For example, an interpreter might define:
+### Completeness of Implementations
 
-    enum class TypeTag
+The language implementations here are not suitable for day-to-day use in solving real problems.
+They typically do not support all the language features and library operations of a full implementation of the same language.
+Error checking, diagnostic messages, and runtime robustness are typically also incomplete.
+
+We hope that readers will see that incompleteness is a deliberate choice.
+Our goal is to impart the flavor of each language, and communicate certain unique aspects of its implementation.
+Readers who want to explore more are encouraged to seek out more advanced implementations with established communities.
+
+Literate Programming
+--------------------
+
+The literate programming methodology was developed by Donald Knuth, based on the idea that programs should first and foremost be written for consumption by humans, rather than machines.
+A literate program is authored in a combination of a document formatting language and a programming language.
+In the case of this book, we use Markdown as our formatting language and C as the programming language.
+The literate programming syntax used for this work is a custom one, inspired primarily by the notation used in Matt Pharr et al.'s book [Physically-Based Rendering: from Theory to Implementation](http://pbr-book.org).
+
+A literate program can contain ordinary prose, and it can also contain code blocks:
+
+    int main(int argc, char** argv)
     {
-    	Nil,
-    	Bool,
-    	Int,
-    	String,
-    	// ...
-    };
-
-### Tagged Unions
-
-In a langauge that uses type tags, we can then define a value as a *tagged union* that combines a tag with a tag-specific *payload* of data. For example:
-
-    struct Value
-    {
-    	TypeTag tag;
-    	union
-    	{
-    		bool boolVal;
-    		int intVal;
-    		const char* stringVal;
-    		...
-		} payload;
+        printf("Hello, World!");
+        return 0;
     }
 
-One advantage of a tagged union is that values of simple types like numbers can usually be stored and manipulated without needing to allocate memory, avoiding the overhead of memory management in many simple cases.
+An arbitrary code block does not, however, get included when a literate program is compiled for execution.
+Code blocks that can be included in the compiled program must use the syntax for a *scrap* (sometimes called a "fragment").
+For example:
 
-A potential disadvantage of typical tagged union approaches is that they can be wasteful of space.
-A typical tagged-union `Value` consumes two pointers worth of space (e.g., 128 bits on a 64-bit platform).
-Only a very small number of those bits are used for values of Boolean or small integer types.
-Having a `Value` consume two pointers also means that `Value`s cannot be assigned to or updated atomically (for interpreters that support concurrent threads).
-
-### Objects
-
-One of the simplest techniques for representing values is to represent every value as a pointer to a heap-allocated *object* that stores a type tag or similar field in its initial bytes:
-
-    struct Object
+    //<<Hello World program>>=
+    int main(int argc, char** argv)
     {
-    	TypeTag tag;
-    };
-    typedef Object* Value;
+        <<print the greeting>>
+        return 0;
+    }
 
-Different types of value are then represented as refined version of Object, either via inheritance, or by embedding an `Object` as an initial field:
+The prefix in `<<...>>=` marks this code block as a *scrap definition*.
+The scrap defined here has a name: `Hello World program`.
+It also contains a *scrap reference* to a scrap named `<<print the greeting>>`.
+We can define a suitable scrap to match that name as follows:
 
-	struct BoolObject
-	{
-		Object base;
-		bool 	val;
-	};
+    <<print the greeting>>=
+    printf("Hello, World!");
 
-Objects are simple to implement and can represent many different types of values uniformly.
-They also guarantee that every `Value` is just the size of one pointer, which is a space advantage over simpler tagged-union representations.
+A custom tool (traditionally called a *tangler*) walks the source text of a literate program to find all of the scrap definitions and references.
+The tangler then outputs one or more files of code where any references to a scrap are replaced with its definition.
 
-An important disadgantage of using objects to represent values is that even simple integer values must be represented as heap-allocated objects.
-If an interpreter will often be used to perform a lot of processing on small values (numbers, Booleans, etc.), then the overhead of managing memory can hurt performance.
+Shared Utilities
+----------------
 
+Certain utilities
 
-Notes
------
-
-Terminology: whenever possible we will use uniform terminology for concepts across all languages, even in cases where the history and traditions of those languages involve other terms.
-This is a trade-off, but one that we feel is appropriate.
-When reading about a language you are already familiar with, you may find it confusing when we do not use the terms you already known.
-On the other hand, when reading about languages you don't already know, you will benefit from being able to easily identify concepts that appear in more than one language.
-
-Error Messages
+Error Handling
 --------------
 
     <<source location declarations>>=
