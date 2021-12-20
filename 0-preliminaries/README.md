@@ -187,6 +187,7 @@ Organization of the Interpreter Program
     <<dependencies>>
     <<source location declarations>>
 	<<input declarations>>
+    <<utility declarations>>
 	<<utility code>>
     <<forward declarations>>
 	<<types>>

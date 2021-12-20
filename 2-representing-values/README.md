@@ -56,7 +56,6 @@ Value Representation
         <<extended type tags>>
     };
 
-
     TypeTag getTag(Value value)
     {
         TypeTag tag = (TypeTag)(value.bits & BASE_TAG_MASK);
@@ -94,18 +93,18 @@ Value Representation
         return tagBaseValue(((uint64_t) valueBits) << 32 | (tag << EXTENDED_TAG_SHIFT), TYPE_TAG_EXTENDED);
     }
 
-    struct ObjHeader
-    {
-        <<object header fields>>
-    };
-    typedef ObjHeader Object;
-
 ### Objects
 
     <<base type tags>>+=
     TYPE_TAG_OBJECT,
 
     <<value declarations>>+=
+    struct ObjHeader
+    {
+        <<object header fields>>
+    };
+    typedef ObjHeader Object;
+
     Value tagObject(const ObjHeader* obj, TypeTag tag = TYPE_TAG_OBJECT)
     {
         return tagBaseValue((uintptr_t)obj, tag);
@@ -126,7 +125,7 @@ We start with a type tag to identify our new type of values.
     TYPE_TAG_INT,
 
     <<types>>+=
-    typedef intptr_t IntVal;
+    typedef int64_t IntVal;
 
 For convenience we define a subroutine `makeInt` for making integer values.
 
@@ -149,7 +148,7 @@ Printing an `Int` is straightforward:
 
 	<<print cases>>+=
 	case TYPE_TAG_INT:
-		printf("%d", getIntVal(value));
+		printf("%lld", (long long)getIntVal(value));
 		break;
 
 ### Booleans
@@ -159,24 +158,13 @@ Next we need a type for Boolean truth values.
 	<<extended type tags>>+=
 	TYPE_BOOL,
 
-Just as for `Int`, we also define a subtype of `Object`.
-
-	<<types>>+=
-	struct BoolObj
-	{
-        Object asObject;
-        bool value;
-	};
-
 There can only be two possible Boolean values, so rather than
 create them on the fly, we will create them once and re-use them.
 
 	<<types>>+=
-    static const BoolObj kTrueObj = { TYPE_BOOL, true };
-    static const BoolObj kFalseObj = { TYPE_BOOL, false };
     Value makeBool(bool value)
     {
-        return tagObject(&(value ? &kTrueObj : &kFalseObj)->asObject);
+        return tagExtendedValue( value ? 1 : 0, TYPE_BOOL );
     }
 
 Next, we define a way to test if a given `Value` is a Boolean.
@@ -184,9 +172,8 @@ Next, we define a way to test if a given `Value` is a Boolean.
 	<<types>>+=
     bool getBoolVal(Value value)
 	{
-        assert(getTag(value) == TYPE_TAG_OBJECT);
-        assert(getObject(value)->type == TYPE_BOOL);
-		return ((BoolObj*) getObject(value))->value;
+        assert(getTag(value) == TYPE_BOOL);
+        return getExtendedValueBits(value) != 0;
 	}
 
 	<<print cases>>+=
@@ -208,10 +195,9 @@ We define nil as its own  type of object:
 	TYPE_NIL,
 
 	<<value declarations>>+=
-    static const ObjHeader kNilObj = { TYPE_NIL };
 	Value makeNil()
 	{
-        return tagObject(&kNilObj);
+        return tagExtendedValue(0, TYPE_NIL);
 	}
 
 ### Strings

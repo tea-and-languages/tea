@@ -27,3 +27,12 @@ call %BREW% %LANG_CHAPTER% %PRELIMINARIES% %UTILITIES% %REPRESENTING_VALUES%
 echo build.bat: building %LANG%...
 call %COMPILE% /nologo %LANG%.cpp /link /out:%LANG%.exe setargv.obj
 
+:: Smalltalk
+set LANG=smalltalk
+set LANG_CHAPTER=6-smalltalk\README.md
+
+echo build.bat: brewing %LANG%...
+call %BREW% %LANG_CHAPTER% %PRELIMINARIES% %UTILITIES% %REPRESENTING_VALUES%
+
+echo build.bat: building %LANG%...
+call %COMPILE% /nologo %LANG%.cpp /link /out:%LANG%.exe setargv.obj
