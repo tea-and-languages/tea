@@ -93,6 +93,22 @@ Value Representation
         return tagBaseValue(((uint64_t) valueBits) << 32 | (tag << EXTENDED_TAG_SHIFT), TYPE_TAG_EXTENDED);
     }
 
+    bool areValuesIdentical(Value left, Value right)
+    {
+        TypeTag leftTag = getTag(left);
+        TypeTag rightTag = getTag(right);
+        if(leftTag != rightTag)
+            return false;
+        
+        switch(leftTag)
+        {
+        default:
+            return left.bits == right.bits;
+
+        <<value identity cases>>
+        }
+    }
+
 ### Objects
 
     <<base type tags>>+=
