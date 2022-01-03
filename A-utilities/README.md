@@ -7,6 +7,7 @@ This section defines utility code that is shared across all the language impleme
 	//<<`InputStream` members>>=
 	const char* cursor = nullptr;
 	const char* end    = nullptr;
+    SourceLoc   loc;
 	virtual void refill() {}
 
 	<<utility code>>+=
@@ -25,8 +26,26 @@ This section defines utility code that is shared across all the language impleme
 		if(isAtEnd(stream))
 			return EOF;
 
-		return *stream.cursor++;
+        stream.loc.column++;
+
+        int c = *stream.cursor++;
+        <<handle end-of-line characters>>
+        return c;
 	}
+
+    <<handle end-of-line characters>>=
+    switch(c)
+    {
+    case '\r':
+        if(peekChar(stream) == '\n')
+        {
+            stream.cursor++;
+        }
+    case '\n':
+        stream.loc.column = 1;
+        stream.loc.line++;
+        return '\n';        
+    }
 
 	//<<utility code>>+=
 	int peekChar(InputStream& stream)
@@ -40,8 +59,7 @@ This section defines utility code that is shared across all the language impleme
     //<<utility code>>+=
     SourceLoc getLoc(InputStream& stream)
     {
-        // TODO: actually track it!
-        return SourceLoc();
+        return stream.loc;
     }
 
 Standard Input
@@ -80,6 +98,14 @@ Standard Input
 Text Utilities
 ==============
 
+	<<utility declarations>>+=
+	bool isSpace(int c);
+	bool isDigit(int c);
+	bool isAlpha(int c);
+	bool isAlphaNum(int c);
+    bool isIdentifierStart(int c);
+    bool isIdentifier(int c);
+
 	<<utility code>>+=
 	void skipSpace(InputStream& stream)
 	{
@@ -115,8 +141,48 @@ Text Utilities
 	{
 		return isAlpha(c) || isDigit(c);
 	}
-
-
+    bool isIdentifierStart(int c)
+    {
+        return isAlpha(c);
+    }
+    bool isIdentifier(int c)
+    {
+        return isAlphaNum(c);
+    }
 
 
 Exercise for the reader: extend the `readChar()` and `peekChar()` routines to support UTF-8 encoded input.
+
+Dynamically-Allocated Arrays
+----------------------------
+
+	<<utility declarations>>+=
+    template<typename T>
+    struct Array
+    {
+    public:
+        int getCount() const { return count; }
+
+        T const* getBuffer() const { return elements; }
+
+        void add(T const& element)
+        {
+            int neededCapacity = count+1;
+            if(capacity < neededCapacity)
+            {
+                int newCapacity = capacity;
+                if(newCapacity < 16) newCapacity = 16;
+                while(newCapacity < neededCapacity)
+                    newCapacity = (newCapacity * 3) / 2;
+
+                elements = (T*) realloc(elements, newCapacity * sizeof(T));
+                capacity = newCapacity;
+            }
+            elements[count++] = element;
+        }
+
+    private:
+        T* elements = nullptr;
+        int count = 0;
+        int capacity = 0;
+    };

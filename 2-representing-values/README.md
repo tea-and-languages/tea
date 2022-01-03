@@ -41,56 +41,66 @@ Value Representation
 
     enum
     {
-        BASE_TAG_BITS = 3,
-        BASE_TAG_MASK = (1 << BASE_TAG_BITS) - 1,
+        INDIRECT_TAG_BITS = 3,
+        INDIRECT_TAG_MASK = (1 << INDIRECT_TAG_BITS) - 1,
 
-        EXTENDED_TAG_BITS = 8,
-        EXTENDED_TAG_SHIFT = BASE_TAG_BITS,
-        EXTENDED_TAG_MASK = ((1 << EXTENDED_TAG_BITS) - 1) << EXTENDED_TAG_SHIFT,
+        DIRECT_TAG_BITS = 8,
+        DIRECT_TAG_SHIFT = INDIRECT_TAG_BITS,
+        DIRECT_TAG_MASK = ((1 << DIRECT_TAG_BITS) - 1) << DIRECT_TAG_SHIFT,
     };
 
     enum TypeTag
     {
-        <<base type tags>>
-        TYPE_TAG_EXTENDED = BASE_TAG_MASK,
-        <<extended type tags>>
+        <<indirect type tags>>
+        TYPE_TAG_DIRECT = INDIRECT_TAG_MASK,
+        <<direct type tags>>
     };
 
     TypeTag getTag(Value value)
     {
-        TypeTag tag = (TypeTag)(value.bits & BASE_TAG_MASK);
-        if(tag == TYPE_TAG_EXTENDED)
+        TypeTag tag = (TypeTag)(value.bits & INDIRECT_TAG_MASK);
+        if(tag == TYPE_TAG_DIRECT)
         {
-            tag = (TypeTag)((value.bits & EXTENDED_TAG_MASK) >> EXTENDED_TAG_SHIFT);
+            tag = (TypeTag)((value.bits & DIRECT_TAG_MASK) >> DIRECT_TAG_SHIFT);
         }
         return tag;
     }
 
-    uint64_t getBaseValueBits(Value value)
+    void* getIndirectValuePtr(Value value)
     {
-        return value.bits & ~(uint64_t)(BASE_TAG_MASK);
+        assert(getTag(value) < TYPE_TAG_DIRECT);
+
+        return (void*)(uintptr_t)(value.bits & ~(uint64_t)(DIRECT_TAG_MASK));
     }
 
-    uint32_t getExtendedValueBits(Value value)
+    uint32_t getDirectValueBits(Value value)
     {
+        assert(getTag(value) >= TYPE_TAG_DIRECT);
         return (value.bits >> 32);
     }
 
-    Value tagBaseValue(uint64_t valueBits, TypeTag tag)
+    Value tagIndirectValue(void* ptr, TypeTag tag)
     {
-        assert((tag & BASE_TAG_MASK) == tag);
-        assert((valueBits & BASE_TAG_MASK) == 0);
+        assert(tag < TYPE_TAG_DIRECT);
+
+        uint64_t valueBits = (uint64_t)(uintptr_t)ptr;
+        assert((valueBits & INDIRECT_TAG_MASK) == 0);
 
         Value value;
         value.bits = valueBits | tag;
         return value;
     }
 
-    Value tagExtendedValue(uint32_t valueBits, TypeTag tag)
+    Value tagDirectValue(uint32_t valueBits, TypeTag tag)
     {
-        assert((tag > TYPE_TAG_EXTENDED));
+        assert((tag >= TYPE_TAG_DIRECT));
 
-        return tagBaseValue(((uint64_t) valueBits) << 32 | (tag << EXTENDED_TAG_SHIFT), TYPE_TAG_EXTENDED);
+        Value value;
+        value.bits =
+            ((uint64_t) valueBits) << 32
+            | (tag << DIRECT_TAG_SHIFT)
+            | TYPE_TAG_DIRECT;
+        return value;
     }
 
     bool areValuesIdentical(Value left, Value right)
@@ -111,10 +121,11 @@ Value Representation
 
 ### Objects
 
-    <<base type tags>>+=
-    TYPE_TAG_OBJECT,
+    <<indirect type tags>>+=
+    //TYPE_TAG_OBJECT,
 
     <<value declarations>>+=
+    #if 0
     struct ObjHeader
     {
         <<object header fields>>
@@ -123,7 +134,7 @@ Value Representation
 
     Value tagObject(const ObjHeader* obj, TypeTag tag = TYPE_TAG_OBJECT)
     {
-        return tagBaseValue((uintptr_t)obj, tag);
+        return tagIndirectValue(obj, tag);
     }
 
     ObjHeader* getObject(Value value)
@@ -131,24 +142,28 @@ Value Representation
         assert(getTag(value) == TYPE_TAG_OBJECT);
         return (ObjHeader*)(uintptr_t)getBaseValueBits(value);
     }
+    #endif
 
 ### Integers
 
 We will start off slowly by defining a type `Int` for integer values.
 We start with a type tag to identify our new type of values.
 
-    <<base type tags>>+=
+    <<direct type tags>>+=
     TYPE_TAG_INT,
 
-    <<types>>+=
-    typedef int64_t IntVal;
+    <<value declarations>>+=
+    typedef int32_t IntVal;
 
 For convenience we define a subroutine `makeInt` for making integer values.
+
+    <<value declarations>>+=
+    Value makeInt(IntVal value);
 
 	<<types>>+=
 	Value makeInt(IntVal value)
 	{
-        return tagBaseValue(value << BASE_TAG_BITS, TYPE_TAG_INT);
+        return tagDirectValue(value, TYPE_TAG_INT);
 	}
 
 Next, we define a way to test if a given `Value` is an integer.
@@ -157,7 +172,7 @@ Next, we define a way to test if a given `Value` is an integer.
     IntVal getIntVal(Value value)
 	{
         assert(getTag(value) == TYPE_TAG_INT);
-        return ((IntVal) getBaseValueBits(value)) / (1 << BASE_TAG_BITS);
+        return (IntVal) getDirectValueBits(value);
 	}
 
 Printing an `Int` is straightforward:
@@ -171,7 +186,7 @@ Printing an `Int` is straightforward:
 
 Next we need a type for Boolean truth values.
 
-	<<extended type tags>>+=
+	<<direct type tags>>+=
 	TYPE_BOOL,
 
 There can only be two possible Boolean values, so rather than
@@ -180,7 +195,7 @@ create them on the fly, we will create them once and re-use them.
 	<<types>>+=
     Value makeBool(bool value)
     {
-        return tagExtendedValue( value ? 1 : 0, TYPE_BOOL );
+        return tagDirectValue( value ? 1 : 0, TYPE_BOOL );
     }
 
 Next, we define a way to test if a given `Value` is a Boolean.
@@ -189,7 +204,7 @@ Next, we define a way to test if a given `Value` is a Boolean.
     bool getBoolVal(Value value)
 	{
         assert(getTag(value) == TYPE_BOOL);
-        return getExtendedValueBits(value) != 0;
+        return getDirectValueBits(value) != 0;
 	}
 
 	<<print cases>>+=
@@ -199,7 +214,7 @@ Next, we define a way to test if a given `Value` is a Boolean.
 
 ### Errors
 
-    <<extended type tags>>=
+    <<direct type tags>>=
     TYPE_TAG_ERROR,
     TYPE_TAG_VOID,
 
@@ -207,18 +222,67 @@ Next, we define a way to test if a given `Value` is a Boolean.
 
 We define nil as its own  type of object:
 
-	<<extended type tags>>+=
+	<<direct type tags>>+=
 	TYPE_NIL,
 
 	<<value declarations>>+=
 	Value makeNil()
 	{
-        return tagExtendedValue(0, TYPE_NIL);
+        return tagDirectValue(0, TYPE_NIL);
 	}
 
 ### Strings
 
 TODO: logic to allocate and manage strings
+
+### Symbols
+
+	<<indirect type tags>>+=
+	TYPE_TAG_SYMBOL,
+
+	<<types>>+=
+	struct Symbol
+	{
+		char const* value;
+		<<additional symbol members>>
+	};
+
+    <<value declarations>>+=
+	Value makeSymbol(char const* value);
+
+	<<types>>+=
+	Value makeSymbol(char const* value)
+	{
+		<<try to find existing symbol>>
+
+		Symbol* result = new Symbol();
+		result->value = _strdup(value);
+		<<add new symbol>>
+		return tagIndirectValue(result, TYPE_TAG_SYMBOL);
+	}
+
+	<<additional symbol members>>=
+	Symbol* next;
+
+	<<try to find existing symbol>>=
+	static Symbol* gSymbols = NULL;
+	for(Symbol* sym = gSymbols; sym; sym = sym->next)
+	{
+		if(strcmp(sym->value, value) == 0)
+			return tagIndirectValue(sym, TYPE_TAG_SYMBOL);
+	}
+
+	<<add new symbol>>=
+	result->next = gSymbols;
+	gSymbols = result;
+
+	<<types>>+=
+	const char* getSymbolVal(Value value)
+	{
+        assert(getTag(value) == TYPE_TAG_SYMBOL);
+        return ((Symbol*) getIndirectValuePtr(value))->value;
+	}
+
 
 TODO: Make symbols hold a reference to the string
 

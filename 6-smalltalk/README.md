@@ -1,6 +1,9 @@
 Smalltalk
 =========
 
+    <<indirect type tags>>+=
+    TYPE_TAG_OBJECT,
+
     <<utility declarations>>+=
     struct Class;
 
@@ -9,10 +12,21 @@ Smalltalk
     struct MessageHandler
     {
         Value           selector;
-        // TODO: #of arguments?
-        // TODO: bytecode?
+
+        BytecodeFunc    bytecode;
+
         MessageHandler* next;
     };
+
+    struct Object
+    {
+        Class* directClass;
+    };
+    Object* getObject(Value value)
+    {
+        assert(getTag(value) == TYPE_TAG_OBJECT);
+        return (Object*) getIndirectValuePtr(value);
+    }
 
     struct Class
     {
@@ -28,11 +42,7 @@ Smalltalk
         MessageHandler* messageHandlers;
     };
 
-    <<object header fields>>+=
-    Class* directClass;
-
     <<types>>+=
-
 
     //<<subroutines>>+=
     Class* getDirectClass(Value receiver)
@@ -62,7 +72,12 @@ Smalltalk
 
         return nullptr;
     }
-    Value invokeMessageHandler(MessageHandler* handler, Value receiver, Value const* args);
+    Value invokeMessageHandler(MessageHandler* handler, Value receiver, Value const* args)
+    {
+        VMThread vm;
+        vm.executeBytecode(handler->bytecode);
+        return makeNil();
+    }
     Value sendMessage(Value receiver, Value selector, Value const* args)
     {
         // Get class from value.
@@ -84,6 +99,106 @@ Smalltalk
 
 
 
+    <<program initialization>>+=
+
+    <<register language primitives>>+=
+
+    <<read in the prelude>>+=
+
+    <<read files specified on command line>>+=
+
+    <<run interactive interpreter>>+=
+
+
+
+	<<subroutines>>+=
+    void readSourceStream(InputStream& stream)
+	{
+        Lexer lexer;
+        lexer.init(&stream);
+
+        Parser parser;
+        parser.init(&lexer);
+
+        parser.parseSourceUnit();
+
+        // executed the bytecode for our source unit...
+
+        BytecodeFunc const& bytecodeFunc = parser.bytecode.getResult();
+        
+        VMThread vm;
+        vm.executeBytecode(bytecodeFunc);
+	}
+
+Parsing
+-------
+
+    <<subroutines>>=
+    void Parser::parseTopLevelItem()
+    {
+        parseStmt();
+    }
+    void Parser::parseStmt()
+    {
+        switch(peekTokenCode())
+        {
+        default:
+            parseExpr();
+            advanceIf(TOK_SEMI);
+            break;
+        }
+    }
+    Parser::ExprResult Parser::parseExpr()
+    {
+        return parsePrefixExpr();
+    }
+
+
+### Message Sends
+
+#### Unary Messages
+
+    <<postfix expr parsing cases>>+=
+    case TOK_IDENTIFIER:
+    {
+        Value selector = token.value;
+        advance();
+
+        bytecode.emitMessageSend(selector, 0);
+    }
+    break;
+
+
+#### Infix Operators
+
+    <<postfix expr parsing cases>>+=
+    case TOK_PLUS:
+    {
+        advance();
+        ExprResult arg = parseSimpleExpr();
+
+        // Emit a message sense for `+`
+        bytecode.emitMessageSend(makeSymbol("+"), 1);
+    }
+    break;
+
+    <<opcodes>>+=
+    OP_MESSAGE_SEND,
+
+    <<bytecode emitter members>>+=
+    ExprResult emitMessageSend(Value selector, int argCount);
+
+
+    <<bytecode definitions>>+=
+    BytecodeEmitter::ExprResult BytecodeEmitter::emitMessageSend(Value selector, int argCount)
+    {
+        // push the selector...
+        emitConstant(selector);
+        emitOpcode(OP_MESSAGE_SEND);
+        emitRawUInt((unsigned) argCount);
+        return 0;
+    }
+
 
 Outline of the Interpreter
 ------------------------------------
@@ -95,3 +210,7 @@ Outline of the Interpreter
 
     //<<utility code>>+=
     <<value declarations>>
+    <<bytecode declarations>>
+    <<bytecode definitions>>
+    <<lexer and parser>>
+

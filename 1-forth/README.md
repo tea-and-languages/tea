@@ -470,3 +470,12 @@ Control Flow
     gInterpretOneCommandCommand = registerBuiltInCommand("__interpret", &builtin_interpretOneCommand);
     IP = &gInterpretOneCommandCommand;
 	<<main vm loop>>
+
+Extras
+------
+
+	<<subroutines>>+=
+    void readSourceStream(InputStream& stream)
+	{
+		// TODO: fill in for the Forth-y case...
+	}

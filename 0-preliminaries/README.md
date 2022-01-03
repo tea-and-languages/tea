@@ -83,9 +83,9 @@ Error Handling
     <<source location declarations>>=
     struct SourceLoc
     {
-        const char* file;
-        int line;
-        int column;
+        const char* file = NULL;
+        int line = 0;
+        int column = 0;
     };
     enum Severity
     {
@@ -105,6 +105,7 @@ Error Handling
     {
         fprintf(stderr, "%s:%d: %s: ", loc.file, loc.line, kSeverityNames[severity]);
         vfprintf(stderr, message, args);
+        fprintf(stderr, "\n");
     }
     void diagnose(SourceLoc loc, Severity severity, const char* message, ...)
     {
@@ -189,6 +190,8 @@ Organization of the Interpreter Program
 	<<input declarations>>
     <<utility declarations>>
 	<<utility code>>
+    <<options declarations>>
+    <<options code>>
     <<forward declarations>>
 	<<types>>
     <<subroutine declarations>>
@@ -210,6 +213,8 @@ Organization of the Interpreter Program
     //<<main entry point>>=
     int main(int argc, char** argv)
     {
+        <<parse options>>
+
         <<program initialization>>
 
         <<register language primitives>>
@@ -222,3 +227,106 @@ Organization of the Interpreter Program
 
         return 0;
     }
+
+#### Options Parsing Nonsense
+
+    //<<options declarations>>=
+    struct Options
+    {
+        <<options members>>
+    };
+    Options gOptions;
+
+    <<options members>>+=
+    const char* programName; // the name that this application was invoked with
+
+    <<options members>>+=
+    const char* const* sourceFiles;
+    int sourceFileCount;
+
+    //<<options code>>=
+    void parseOptions(Options* outOptions, int argc, char** argv)
+    {
+        char** argCursor = argv;
+        char** argsEnd = argCursor + argc;
+
+        char** sourceFiles = argv;
+        outOptions->sourceFiles = (const char* const*) sourceFiles;
+
+        if(argCursor != argsEnd)
+        {
+            outOptions->programName = *argCursor++;
+        }
+
+        while(argCursor != argsEnd)
+        {
+            char const* arg = *argCursor++;
+            if(arg[0] == '-')
+            {
+                // TODO: actually do something here!
+            }
+            else
+            {
+                // No `-` prefix? Then it is a source file...
+                *sourceFiles++ = (char*)arg;
+                outOptions->sourceFileCount++;
+            }
+        }
+
+        while(argCursor != argsEnd)
+        {
+            *sourceFiles++ = *argCursor++;
+            outOptions->sourceFileCount++;
+        }
+    }
+
+    <<parse options>>+=
+    parseOptions(&gOptions, argc, argv);
+
+
+#### Handling Input Files
+
+    <<forward declarations>>+=
+    void readSourceFile(const char* path);
+    void readSourceStream(InputStream& stream);
+
+    //<<read files specified on command line>>=
+    printf("About to read %d input files\n", gOptions.sourceFileCount);
+    for(int i = 0; i < gOptions.sourceFileCount; i++)
+    {
+        char const* sourceFilePath = gOptions.sourceFiles[i];
+        printf("About to read: %s\n", sourceFilePath);
+        readSourceFile(sourceFilePath);
+    }
+
+	<<subroutines>>+=
+    void readSourceFile(const char* path)
+    {
+        SourceLoc loc;
+        loc.file = path;
+        loc.line = 0;
+        loc.column = 0;
+
+        FILE* file = fopen(path, "rb");
+        if(!file)
+        {
+            error(loc, "couldn't open the file");
+            return;
+        }
+
+        fseek(file, 0, SEEK_END);
+        size_t fileSize = ftell(file);
+        fseek(file, 0, SEEK_SET);
+
+        char* data = (char*) malloc(fileSize + 1);
+        fread(data, fileSize, 1, file);
+        data[fileSize] = 0;
+
+    	InputStream fileStream;
+        fileStream.cursor = data;
+        fileStream.end = data + fileSize;
+
+        readSourceStream(fileStream);
+    }
+
+

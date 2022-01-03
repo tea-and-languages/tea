@@ -191,40 +191,41 @@ A non-empty list is represented as a pair, with a *head* that is the first eleme
     <<object header fields>>+=
     uint64_t type;
 
-	<<extended type tags>>+=
-	TYPE_PAIR,
+	<<direct type tags>>+=
+	TYPE_TAG_PAIR,
 
 	<<types>>+=
     TypeTag getType(Value value)
     {
-        TypeTag tag = getTag(value);
-        if(tag != TYPE_TAG_OBJECT)
-            return tag;
-        return TypeTag(getObject(value)->type);
+        return getTag(value);
     }
-	struct PairObj
+	struct Pair
 	{
-        ObjHeader asObject;
 		Value head;
 		Value tail;
 	};
 	Value makePair(Value head, Value tail)
 	{
-		PairObj* pair = new PairObj();
-		pair->asObject.type = TYPE_PAIR;
+		Pair* pair = new Pair();
 		pair->head = head;
 		pair->tail = tail;
-		return tagObject(&pair->asObject);
+		return tagIndirectValue(pair, TYPE_TAG_PAIR);
 	}
+    Pair* asPair(Value value)
+    {
+        if(getTag(value) == TYPE_TAG_PAIR)
+            return (Pair*) getIndirectValuePtr(value);
+        return NULL;
+    }
     Value& head(Value value)
     {
-        assert(getType(value) == TYPE_PAIR);
-        return ((PairObj*) getObject(value))->head;
+        assert(asPair(value));
+        return asPair(value)->head;
     }
     Value& tail(Value value)
     {
-        assert(getType(value) == TYPE_PAIR);
-        return ((PairObj*) getObject(value))->tail;
+        assert(asPair(value));
+        return asPair(value)->tail;
     }
 
 For historical reasons, many Lisps refer to the head of a list as "car," the tail as "cdr," and the operation to make a pair as "cons."
@@ -256,12 +257,12 @@ For example, the proper list `(a . (b . ()))` can be written `(a b)`.
 When printing a pair, we want to use the most compact notation possible.
 
 	<<print cases>>+=
-	case TYPE_PAIR:
+	case TYPE_TAG_PAIR:
 	{
 		printf("(");
         print(head(value));
 		Value rest = tail(value);
-        while(getType(rest) == TYPE_PAIR)
+        while(getType(rest) == TYPE_TAG_PAIR)
 		{
 			printf(" ");
 			print(head(rest));
@@ -336,7 +337,7 @@ When a non-empty list like `(f a0 a1 a2)` is evauated as an expression it usuall
 There are some special cases we will deal with shortly, but for now let's handle the common case.
 
 	<<eval cases>>+=
-	case TYPE_PAIR:
+	case TYPE_TAG_PAIR:
 	{
         Value funcExpr = head(value);
         Value argExprs = tail(value);
@@ -359,7 +360,7 @@ There are some special cases we will deal with shortly, but for now let's handle
         Value* link = &result;
 
         Value rest = list;
-        while(getType(rest) == TYPE_PAIR)
+        while(getType(rest) == TYPE_TAG_PAIR)
         {
             Value argExpr = head(rest);
             Value arg = eval(argExpr, env);
@@ -391,14 +392,13 @@ There are some special cases we will deal with shortly, but for now let's handle
 Primitive Functions
 ------------------
 
-	<<extended type tags>>+=
+	<<direct type tags>>+=
     TYPE_PRIMITIVE_FUNC,
 
     <<types>>+=
     typedef Value (*PrimitiveFunc)(Value args);
     struct PrimitiveFuncObj
     {
-        Object asObject;
         PrimitiveFunc value;
     };
 
@@ -406,21 +406,20 @@ Primitive Functions
     Value makePrimitiveFunc(PrimitiveFunc value)
 	{
 		PrimitiveFuncObj* result = new PrimitiveFuncObj();
-		result->asObject.type = TYPE_PRIMITIVE_FUNC;
 		result->value = value;
-        return tagObject(&result->asObject);
+        return tagIndirectValue(result, TYPE_PRIMITIVE_FUNC);
 	}
     PrimitiveFunc getPrimitiveFunc(Value value)
 	{
         assert(getType(value) == TYPE_PRIMITIVE_FUNC);
-        return ((PrimitiveFuncObj*) getObject(value))->value;
+        return ((PrimitiveFuncObj*) getIndirectValuePtr(value))->value;
 	}
 
     <<subroutines>>+=
     Value readHead(Value* ioList)
     {
         Value list = *ioList;
-        if(getType(list) == TYPE_PAIR)
+        if(getType(list) == TYPE_TAG_PAIR)
         {
            *ioList = tail(list);
            return head(list);
@@ -464,12 +463,12 @@ Primitive Functions
 Primitive Syntax
 ----------------
 
-	<<extended type tags>>+=
+	<<direct type tags>>+=
     TYPE_PRIMITIVE_SYNTAX,
 
     <<types>>+=
     typedef Value (*PrimitiveSyntax)(Value body, Value env);
-    struct PrimitiveSyntaxObj : Object
+    struct PrimitiveSyntaxObj
     {
         PrimitiveSyntax value;
     };
@@ -478,14 +477,13 @@ Primitive Syntax
     Value makePrimitiveSyntax(PrimitiveSyntax value)
 	{
 		PrimitiveSyntaxObj* result = new PrimitiveSyntaxObj();
-		result->type = TYPE_PRIMITIVE_SYNTAX;
 		result->value = value;
-		return tagObject(result);
+		return tagIndirectValue(result, TYPE_PRIMITIVE_SYNTAX);
 	}
     PrimitiveSyntax getPrimitiveSyntax(Value value)
 	{
         assert(getType(value) == TYPE_PRIMITIVE_SYNTAX);
-        return ((PrimitiveSyntaxObj*) getObject(value))->value;
+        return ((PrimitiveSyntaxObj*) getIndirectValuePtr(value))->value;
 	}
 
     <<subroutines>>+=
@@ -518,11 +516,11 @@ Primitive Syntax
 User-Defined Functions
 ----------------------
 
-	<<extended type tags>>+=
+	<<direct type tags>>+=
 	TYPE_USER_FUNC,
 
     <<types>>+=
-    struct UserFuncObj : Object
+    struct UserFuncObj
     {
         Value params;
         Value body;
@@ -533,16 +531,15 @@ User-Defined Functions
     Value makeUserFunc(Value params, Value body, Value env)
 	{
 		UserFuncObj* result = new UserFuncObj();
-		result->type = TYPE_USER_FUNC;
         result->params = params;
         result->body = body;
         result->env = env;
-        return tagObject(result);
+        return tagIndirectValue(result, TYPE_USER_FUNC);
 	}
     UserFuncObj* getUserFunc(Value value)
 	{
         assert(getType(value) == TYPE_USER_FUNC);
-        return (UserFuncObj*) getObject(value);
+        return (UserFuncObj*) getIndirectValuePtr(value);
 	}
 
     <<subroutines>>+=
@@ -550,7 +547,7 @@ User-Defined Functions
     {
         Value result = makeNil();
 
-        while(getType(body) == TYPE_PAIR)
+        while(getType(body) == TYPE_TAG_PAIR)
         {
             result = eval(head(body), env);
             body = tail(body);
@@ -568,7 +565,7 @@ User-Defined Functions
         Value paramEnv = makePair(makeNil(), userFunc->env);
 
         Value params = userFunc->params;
-        while(getType(params) == TYPE_PAIR)
+        while(getType(params) == TYPE_TAG_PAIR)
         {
             Value param = head(params);
             params = tail(params);
@@ -612,54 +609,10 @@ User-Defined Functions
 Symbols
 -------
 
-	<<extended type tags>>+=
-	TYPE_SYMBOL,
 
-	<<types>>+=
-	struct SymbolObj
-	{
-        Object asObject;
-		char const* value;
-		<<additional symbol members>>
-	};
-
-	<<types>>+=
-	Value makeSymbol(char const* value)
-	{
-		<<try to find existing symbol>>
-
-		SymbolObj* result = new SymbolObj();
-		result->asObject.type = TYPE_SYMBOL;
-		result->value = _strdup(value);
-		<<add new symbol>>
-		return tagObject(&result->asObject);
-	}
-
-	<<additional symbol members>>=
-	SymbolObj* next;
-
-	<<try to find existing symbol>>=
-	static SymbolObj* gSymbols = NULL;
-	for(SymbolObj* sym = gSymbols; sym; sym = sym->next)
-	{
-		if(strcmp(sym->value, value) == 0)
-			return tagObject(&sym->asObject);
-	}
-
-	<<add new symbol>>=
-	result->next = gSymbols;
-	gSymbols = result;
-
-
-	<<types>>+=
-	const char* getSymbolVal(Value value)
-	{
-        assert(getType(value) == TYPE_SYMBOL);
-        return ((SymbolObj*) getObject(value))->value;
-	}
 
 	<<print cases>>+=
-	case TYPE_SYMBOL:
+	case TYPE_TAG_SYMBOL:
 		printf("%s", getSymbolVal(value));
 		break;
 
@@ -689,13 +642,13 @@ Symbols
 Symbols are our first case of a value that does *not* evaluate to itself.
 
 	<<eval cases>>+=
-	case TYPE_SYMBOL:
+	case TYPE_TAG_SYMBOL:
 	{
 		Value scope = env;
-        while(getType(scope) == TYPE_PAIR)
+        while(getType(scope) == TYPE_TAG_PAIR)
 		{
 			Value bindingList = head(scope);
-			while(getType(bindingList) == TYPE_PAIR)
+			while(getType(bindingList) == TYPE_TAG_PAIR)
 			{
 				Value binding = head(bindingList);
                 if(head(binding).bits == value.bits)
@@ -716,11 +669,11 @@ Symbols are our first case of a value that does *not* evaluate to itself.
 Macros
 ------
 
-	<<extended type tags>>+=
+	<<direct type tags>>+=
     TYPE_MACRO,
 
     <<types>>+=
-    struct MacroObj : Object
+    struct MacroObj
     {
         Value transformer;
     };
@@ -729,14 +682,13 @@ Macros
     Value makeMacro(Value transformer)
 	{
 		MacroObj* result = new MacroObj();
-		result->type = TYPE_MACRO;
 		result->transformer = transformer;
-        return tagObject(result);
+        return tagIndirectValue(result, TYPE_MACRO);
 	}
     Value getMacroTransformer(Value value)
 	{
         assert(getType(value) == TYPE_MACRO);
-        return ((MacroObj*) getObject(value))->transformer;
+        return ((MacroObj*) getIndirectValuePtr(value))->transformer;
 	}
 
     <<other pair eval cases>>+=
@@ -793,6 +745,12 @@ Homoiconicity
 	{
 		exit(0);
 	}
+	Value primitive_print(Value args)
+	{
+		Value arg = readHead(&args);
+        print(arg);
+        return makeNil();
+	}
 	Value primitive_pair(Value args)
 	{
 		Value head = readHead(&args);
@@ -802,7 +760,7 @@ Homoiconicity
 	Value primitive_isPair(Value args)
 	{
 		Value arg = readHead(&args);
-        return makeBool(getType(arg) == TYPE_PAIR);
+        return makeBool(getType(arg) == TYPE_TAG_PAIR);
 	}
 	Value primitive_head(Value args)
 	{
@@ -815,8 +773,12 @@ Homoiconicity
         return tail(pair);
 	}
 
+    <<subroutines>>+=
+    Value gEnv;
+
     <<program initialization>>=
 	Value env = makePair(makeNil(), makeNil());
+    gEnv = env;
 
     <<register language primitives>>+=
     define(env, makeSymbol("if"), makePrimitiveSyntax(&builtin_if));
@@ -833,6 +795,7 @@ Homoiconicity
 
     define(env, makeSymbol("macro"), makePrimitiveFunc(&primitive_macro));
     define(env, makeSymbol("exit"), makePrimitiveFunc(&primitive_exit));
+    define(env, makeSymbol("print"), makePrimitiveFunc(&primitive_print));
     define(env, makeSymbol("pair"), makePrimitiveFunc(&primitive_pair));
     define(env, makeSymbol("pair?"), makePrimitiveFunc(&primitive_isPair));
     define(env, makeSymbol("head"), makePrimitiveFunc(&primitive_head));
@@ -908,3 +871,12 @@ Outline of the Interpreter
 
     //<<utility code>>+=
     <<value declarations>>
+
+Extras
+------
+
+	<<subroutines>>+=
+    void readSourceStream(InputStream& stream)
+	{
+        load(stream, gEnv);
+	}
