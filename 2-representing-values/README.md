@@ -51,6 +51,7 @@ Value Representation
         <<direct type tags>>
     };
 
+    #define TRICKY_ENCODING 1
     struct Value
     {
     #if TRICKY_ENCODING
@@ -86,7 +87,7 @@ Value Representation
     #if TRICKY_ENCODING
         assert(getTag(value) < TYPE_TAG_DIRECT);
 
-        return (void*)(uintptr_t)(value.bits & ~(uint64_t)(DIRECT_TAG_MASK));
+        return (void*)(uintptr_t)(value.bits & ~(uint64_t)(INDIRECT_TAG_MASK));
     #else
         return value.ptr;
     #endif
