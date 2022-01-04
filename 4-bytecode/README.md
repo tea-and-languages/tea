@@ -4,7 +4,7 @@ A Simple Bytecode and Virtual Machine
 Bytecode
 --------
 
-    //<<bytecode declarations>>=
+    //<<bytecode types>>=
 
     typedef uint8_t Code;
 
@@ -19,33 +19,55 @@ Bytecode
     {
         Code const* code;
         Value const* constants;
+        int stackValueCount;
     };
 
 Virtual Machine
 ---------------
 
+    //<<dependencies>>+=
+    #include <new>
+
     //<<bytecode declarations>>=
 
     struct VMFrame
     {
-        BytecodeFunc const*   func;
-        Code const*     ip;
+        BytecodeFunc const*     func = nullptr;
+        Code const*             ip = nullptr;
+        VMFrame*                parent = nullptr;
+        Value*                  stackPtr = nullptr;
+        Value const*            args = nullptr;
+        int                     argCount = 0;
+
+        Value                   stackData[1];
     };
 
     struct VMThread
     {
-        VMFrame frame;
+        VMFrame* frame;
 
-        Array<Value> stack;
-        Array<VMFrame> frames;
+    //        Array<Value> stack;
+    //        Array<VMFrame> frames;
 
         <<vm thread members>>
     };
 
-    <<vm thread members>>+=
+    struct VMContext
+    {
+        VMThread*       _thread = nullptr;
+
+        VMThread*& thread() { return _thread; }
+        VMFrame*& frame() { return thread()->frame; }
+        Code const*& ip() { return frame()->ip; }
+        Value*& stackPtr() { return frame()->stackPtr; }
+
+        <<vm context members>>
+    };
+
+    <<vm context members>>+=
     unsigned readByte()
     {
-        return *frame.ip++;
+        return *ip()++;
     }
 
     unsigned readUInt()
@@ -64,13 +86,66 @@ Virtual Machine
 
     void pushValue(Value value)
     {
-        stack.add(value);
+        *stackPtr()++ = value;
+    }
+
+    Value popValue()
+    {
+        --stackPtr();
+        return *stackPtr();
+    }
+
+    Value& valueAtIndex(int index)
+    {
+        return *(stackPtr() - index);
+    }
+
+    Value* getValuesAtIndex(int index)
+    {
+        return stackPtr() - index;
+    }
+
+    VMFrame* createFrame(int stackValueCount)
+    {
+        size_t size = sizeof(VMFrame) + (stackValueCount-1)*sizeof(Value);
+
+        void* data = malloc(size);
+        memset(data, 0, size);
+
+        VMFrame* frame = new(data) VMFrame();
+        frame->stackPtr = frame->stackData;
+        return frame;
+    }
+
+    VMFrame* createFrame(BytecodeFunc const* func, int argCount, Value const* args)
+    {
+        VMFrame* newFrame = createFrame(func->stackValueCount);
+        newFrame->func = func;
+        newFrame->ip = func->code;
+        newFrame->args = args;
+        newFrame->argCount = argCount;
+        return newFrame;
+    }
+
+    void pushFrame(VMFrame* newFrame)
+    {
+        frame() = newFrame;
+    }
+
+    VMFrame* pushFrame(BytecodeFunc const* func, int argCount, Value const* args)
+    {
+        VMFrame* newFrame = createFrame(func, argCount, args);
+        pushFrame(newFrame);
+        return newFrame;
     }
 
     void executeBytecode(BytecodeFunc const& func)
     {
-        frame.func = &func;
-        frame.ip = func.code;
+        auto frame = createFrame(func.stackValueCount);
+        frame->func = &func;
+        frame->ip = func.code;
+
+        pushFrame(frame);
 
         execute();
     }
@@ -158,6 +233,7 @@ Emitting Bytecode
 
         func.code = codeBuffer;
         func.constants = constantsBuffer;
+        func.stackValueCount = 100; // TODO: actually figure this bit out!!!
 
         return func;
     }
@@ -189,7 +265,7 @@ Constants
     case OP_CONSTANT:
     {
         unsigned index = readUInt();
-        Value value = frame.func->constants[index];
+        Value value = frame()->func->constants[index];
         pushValue(value);
     }
     break;

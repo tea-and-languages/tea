@@ -181,6 +181,14 @@ Dynamically-Allocated Arrays
             elements[count++] = element;
         }
 
+		T& operator[](int index) { return elements[index]; }
+		T const& operator[](int index) const { return elements[index]; }
+
+		void removeLast()
+		{
+			count--;
+		}
+
     private:
         T* elements = nullptr;
         int count = 0;

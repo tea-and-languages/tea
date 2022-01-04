@@ -51,7 +51,7 @@ Value Representation
         <<direct type tags>>
     };
 
-    #define TRICKY_ENCODING 1
+    //#define TRICKY_ENCODING 1
     struct Value
     {
     #if TRICKY_ENCODING
@@ -64,6 +64,7 @@ Value Representation
             uint64_t bits;
             struct Pair* pair;
             struct Symbol* symbol;
+            struct Object* object;
         };
     #endif
     };
@@ -226,6 +227,9 @@ Next we need a type for Boolean truth values.
 
 There can only be two possible Boolean values, so rather than
 create them on the fly, we will create them once and re-use them.
+
+    <<value declarations>>+=
+    Value makeBool(bool value);
 
 	<<types>>+=
     Value makeBool(bool value)
@@ -397,4 +401,104 @@ They also guarantee that every `Value` is just the size of one pointer, which is
 An important disadgantage of using objects to represent values is that even simple integer values must be represented as heap-allocated objects.
 If an interpreter will often be used to perform a lot of processing on small values (numbers, Booleans, etc.), then the overhead of managing memory can hurt performance.
 
+
+### Printing Values
+
+In order to display the results of computation, we need a way to print out values.
+The way we print values will, in general, depend on their type:
+
+	<<value declarations>>+=
+	void print(Value value);
+
+	<<subroutines>>+=
+	void print(Value value)
+	{
+		<<print implementation>>
+	}
+
+	<<print implementation>>=
+	switch(getTag(value))
+	{
+		<<print cases>>
+	}
+
+We define a fallback case for `print` to handle any types that don't have a convenient textual representation.
+
+	<<print cases>>
+	default:
+		printf("<unknown>");
+		break;
+
+
+### Primitive Functions
+
+    <<value declarations>>+=
+    typedef Value PrimitiveFuncResult;
+    struct PrimitiveFuncContext;
+    typedef PrimitiveFuncResult (PrimitiveFuncContext::*PrimitiveFunc)();
+    #define PRIMITIVE_FUNC(NAME) &PrimitiveFuncContext::primitive_##NAME
+
+    struct PrimitiveFuncContext
+    {
+        <<primitive func context members>>
+
+        Value readArg();
+        IntVal readIntArg();
+        PrimitiveFuncResult returnNil();
+
+    #define PRIMITIVE_FUNC_DECL(NAME) PrimitiveFuncResult primitive_##NAME()
+        <<primitive func declarations>>
+    #undef PRIMITIVE_FUNC_DECL
+    };
+
+    <<primitive func declarations>>+=
+
+    PRIMITIVE_FUNC_DECL(print);
+    PRIMITIVE_FUNC_DECL(exit);
+
+    #define PRIMITIVE_INT_OP(NAME, OP)                  \
+        PRIMITIVE_FUNC_DECL(NAME)                \
+        {                                               \
+            IntVal left = readIntArg();                 \
+            IntVal right = readIntArg();                \
+            return makeInt(left OP right);              \
+        }
+
+    PRIMITIVE_INT_OP(add, +)
+    PRIMITIVE_INT_OP(sub, -)
+    PRIMITIVE_INT_OP(mul, *)
+    PRIMITIVE_INT_OP(div, /)
+
+    #define PRIMITIVE_INT_CMP_OP(NAME, OP)              \
+        PRIMITIVE_FUNC_DECL(NAME)          \
+        {                                           \
+            IntVal left = readIntArg();   \
+            IntVal right = readIntArg();  \
+            return makeBool(left OP right);          \
+        }
+
+    PRIMITIVE_INT_CMP_OP(cmp_gt, >)
+
+    <<subroutines>>+=
+    #define PRIMITIVE_FUNC_DEF(NAME) PrimitiveFuncResult PrimitiveFuncContext::primitive_##NAME()
+    <<primitive func definitions>>
+    #undef PRIMITIVE_FUNC_DEF
+
+    <<subroutines>>+=
+    IntVal PrimitiveFuncContext::readIntArg()
+    {
+        return getIntVal(readArg()); // TODO: actual error checking?
+    }
+
+    <<primitive func definitions>>+=
+    PRIMITIVE_FUNC_DEF(exit)
+	{
+		exit(0);
+	}
+    PRIMITIVE_FUNC_DEF(print)
+	{
+		Value arg = readArg();
+        print(arg);
+        return makeNil();
+	}
 

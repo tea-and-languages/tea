@@ -7,15 +7,15 @@ Smalltalk
     <<utility declarations>>+=
     struct Class;
 
-	<<types>>+=
+	<<smalltalk types>>+=
+
+    struct FuncObj;
 
     struct MessageHandler
     {
-        Value           selector;
-
-        BytecodeFunc    bytecode;
-
-        MessageHandler* next;
+        Value               selector;
+        FuncObj*            func;
+        MessageHandler*     next;
     };
 
     struct Object
@@ -27,6 +27,15 @@ Smalltalk
         assert(getTag(value) == TYPE_TAG_OBJECT);
         return (Object*) getIndirectValuePtr(value);
     }
+
+    struct FuncObj : Object
+    {
+        PrimitiveFunc func;
+    };
+    struct BytecodeFuncObj : FuncObj
+    {
+        BytecodeFunc bytecode;
+    };
 
     struct Class
     {
@@ -41,10 +50,13 @@ Smalltalk
         // dictionary for message lookup
         MessageHandler* messageHandlers;
     };
+    Class* gIntClass;
 
-    <<types>>+=
+    <<smalltalk function declarations>>+=
+    Class* getDirectClass(Value receiver);
+    MessageHandler* lookUpMessageHandler(Class* directClass, Value selector);
 
-    //<<subroutines>>+=
+    //<<smalltalk function definitions>>+=
     Class* getDirectClass(Value receiver)
     {
         switch(getTag(receiver))
@@ -52,6 +64,9 @@ Smalltalk
         default:
             // error case
             return nullptr;
+
+        case TYPE_TAG_INT:
+            return gIntClass;
 
         case TYPE_TAG_OBJECT:
             return getObject(receiver)->directClass;
@@ -72,13 +87,33 @@ Smalltalk
 
         return nullptr;
     }
-    Value invokeMessageHandler(MessageHandler* handler, Value receiver, Value const* args)
+    Value invokeBytecodeFuncObj(FuncObj* func, Value receiver, Value const* args)
     {
-        VMThread vm;
-        vm.executeBytecode(handler->bytecode);
+        auto self = (BytecodeFuncObj*) func;
+
+        VMThread vmThread;
+        VMContext vmContext;
+        vmContext.thread() = &vmThread;
+
+        vmContext.executeBytecode(self->bytecode);
         return makeNil();
     }
-    Value sendMessage(Value receiver, Value selector, Value const* args)
+    Value invokeMessageHandler(MessageHandler* handler, Value receiver, int argCount, Value const* args)
+    {
+        auto func = handler->func;
+        auto prim = func->func;
+
+        PrimitiveFuncContext context;
+        context.args = args;
+        context.argIndex = argCount;
+        context.func = func;
+        context.receiver = receiver;
+
+        Value result = (context.*prim)();
+
+        return result;
+    }
+    Value sendMessage(Value receiver, Value selector, int argCount, Value const* args)
     {
         // Get class from value.
         Class* directClass = getDirectClass(receiver);
@@ -94,10 +129,12 @@ Smalltalk
         // If we found a handler, then we should go ahead and invoke
         // it on the combination of receiver and arguments.
         //
-        return invokeMessageHandler(handler, receiver, args);
+        return invokeMessageHandler(handler, receiver, argCount, args);
     }
 
-
+    <<primitive func context members>>+=
+    Value receiver;
+    struct FuncObj* func;
 
     <<program initialization>>+=
 
@@ -112,6 +149,7 @@ Smalltalk
 
 
 	<<subroutines>>+=
+    <<parser declarations>>
     void readSourceStream(InputStream& stream)
 	{
         Lexer lexer;
@@ -126,14 +164,17 @@ Smalltalk
 
         BytecodeFunc const& bytecodeFunc = parser.bytecode.getResult();
         
-        VMThread vm;
-        vm.executeBytecode(bytecodeFunc);
+        VMThread vmThread;
+
+        VMContext context;
+        context.thread() = &vmThread;
+        context.executeBytecode(bytecodeFunc);
 	}
 
 Parsing
 -------
 
-    <<subroutines>>=
+    <<smalltalk function definitions>>=
     void Parser::parseTopLevelItem()
     {
         parseStmt();
@@ -199,18 +240,131 @@ Parsing
         return 0;
     }
 
+    <<primitive func context members>>+=
+    Value invokeBytecodeFunc();
+
+    <<subroutines>>+=
+    Value PrimitiveFuncContext::invokeBytecodeFunc()
+    {
+        auto bytecodeFunc = (BytecodeFuncObj*) func;
+
+        // TODO: need to set up arguments, etc. for call
+
+        VMThread vmThread;
+
+        VMContext vmContext;
+        vmContext.thread() = &vmThread;
+        vmContext.executeBytecode(bytecodeFunc->bytecode);
+        return makeNil();
+    }
+
+    <<virtual machine cases>>+=
+    case OP_MESSAGE_SEND:
+    {
+        unsigned argCount = readUInt();
+        Value selector = popValue();
+
+        Value const* args = getValuesAtIndex(argCount + 1);
+        Value receiver = args[0];
+
+        Class* directClass = getDirectClass(receiver);
+        MessageHandler* handler = lookUpMessageHandler(directClass, selector);
+        if(!handler)
+        {
+            // TODO: "message not understood" path
+            // otherwise, error
+        }
+        auto func = handler->func;
+        if(func->func != &PrimitiveFuncContext::invokeBytecodeFunc)
+        {
+            auto prim = func->func;
+
+            PrimitiveFuncContext context;
+            context.args = args;
+            context.argIndex = 0;
+            context.argCount = argCount+1;
+            context.receiver = receiver;
+            context.func = func;
+
+            Value result = (context.*prim)();
+
+            // TODO: do something with result!
+
+            // TODO: need to pop everything that was part of the send...
+
+            pushValue(result);
+        }
+        else
+        {
+            auto bytecodeFuncObj = (BytecodeFuncObj*) func;
+
+            pushFrame(&bytecodeFuncObj->bytecode, argCount, args);
+        }
+
+    }
+    break;
+
+Primitive Func Stuff
+--------------------
+
+    <<primitive func context members>>+=
+    Value const* args;
+    int argIndex;
+    int argCount;
+
+    <<subroutines>>+=
+    Value PrimitiveFuncContext::readArg()
+    {
+        return args[argIndex++];
+    }
+
+Setting up the Built-in Classes
+-------------------------------
+
+
+    //<<register language primitives>>+=
+    gIntClass = new Class();
+
+    // TODO: need to install a `+` handler into the `Int` class...
+
+    auto clazz = gIntClass;
+
+    auto func = new FuncObj();
+    func->func = PRIMITIVE_FUNC(add);
+
+    auto handler = new MessageHandler();
+    handler->selector = makeSymbol("+");
+    handler->func = func;
+
+    handler->next = clazz->messageHandlers;
+    clazz->messageHandlers = handler;
+
+    func = new FuncObj();
+    func->func = PRIMITIVE_FUNC(print);
+
+    handler = new MessageHandler();
+    handler->selector = makeSymbol("print");
+    handler->func = func;
+
+    handler->next = clazz->messageHandlers;
+    clazz->messageHandlers = handler;
+
 
 Outline of the Interpreter
 ------------------------------------
 
-    <<subroutine declarations>>+=
-
     //<<file:smalltalk.cpp>>=
     <<interpreter program>>
 
-    //<<utility code>>+=
+    //<<types>>+=
     <<value declarations>>
+    <<bytecode types>>
+    <<smalltalk types>>
+    <<smalltalk function declarations>>
     <<bytecode declarations>>
+
+    //<<subroutines>>+=
     <<bytecode definitions>>
     <<lexer and parser>>
+    <<smalltalk function definitions>>
 

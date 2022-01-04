@@ -13,7 +13,7 @@ If tokens are like words, then a parser is responsible for recognizing phrases, 
 Tokens
 ------
 
-    <<token declarations>>+=
+    <<once:token declarations>>+=
     enum TokenCode
     {
         TOK_EOF = -1,
@@ -39,7 +39,8 @@ Tokens
 Lexer
 -----
 
-    <<lexer declarations>>+=
+    <<once:lexer declarations>>+=
+    <<token declarations>>
     struct Lexer
     {
         InputStream* stream;
@@ -194,7 +195,8 @@ Lexer
 Parser
 ------
 
-    <<parser declarations>>+=
+    <<once:parser declarations>>+=
+    <<lexer declarations>>
     struct Parser
     {
         Lexer*  lexer;
@@ -311,7 +313,7 @@ Parser
             {
                 Value value = token.value;
                 advance();
-                return bytecode.emitConstant(token.value);
+                return bytecode.emitConstant(value);
             }
 
         default:

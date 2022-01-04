@@ -27,29 +27,6 @@ The fundamental value types in Lisp serve a dual role, both as values to be mani
 
 ### Reading and Writing
 
-In order to display the results of computation, we need a way to print out values.
-The way we print values will, in general, depend on their type:
-
-	<<subroutines>>+=
-	void print(Value value)
-	{
-		<<print implementation>>
-	}
-
-	<<print implementation>>=
-	switch(getType(value))
-	{
-		<<print cases>>
-	}
-
-We define a fallback case for `print` to handle any types that don't have a convenient textual representation.
-
-	<<print cases>>
-	default:
-		printf("<unknown>");
-		break;
-
-
 In order to read in a program to execute it, we need a way to read values from an input stream:
 
 	<<subroutines>>+=
@@ -393,7 +370,6 @@ Primitive Functions
     TYPE_PRIMITIVE_FUNC,
 
     <<types>>+=
-    typedef Value (*PrimitiveFunc)(Value args);
     struct PrimitiveFuncObj
     {
         PrimitiveFunc value;
@@ -412,14 +388,19 @@ Primitive Functions
         return ((PrimitiveFuncObj*) getIndirectValuePtr(value))->value;
 	}
 
+    <<primitive func context members>>+=
+    #if 0
+    Value readHead(Value* ioList);
+    #endif
+
     <<subroutines>>+=
-    Value readHead(Value* ioList)
+    Value PrimitiveFuncContext::readArg()
     {
-        Value list = *ioList;
-        if(getType(list) == TYPE_TAG_PAIR)
+        if(getType(args) == TYPE_TAG_PAIR)
         {
-           *ioList = tail(list);
-           return head(list);
+            Value result = head(args);
+            args = tail(args);
+            return result;
         }
         else
         {
@@ -428,33 +409,20 @@ Primitive Functions
         }
     }
 
-    <<subroutines>>+=
-    #define PRIMITIVE_INT_OP(NAME, OP)              \
-        Value primitive_##NAME(Value args)          \
-        {                                           \
-            IntVal left = getIntVal(readHead(&args));   \
-            IntVal right = getIntVal(readHead(&args));  \
-            return makeInt(left OP right);          \
-        }
-
-    PRIMITIVE_INT_OP(add, +)
-    PRIMITIVE_INT_OP(sub, -)
-    PRIMITIVE_INT_OP(mul, *)
-    PRIMITIVE_INT_OP(div, /)
-
-    #define PRIMITIVE_INT_CMP_OP(NAME, OP)              \
-        Value primitive_##NAME(Value args)          \
-        {                                           \
-            IntVal left = getIntVal(readHead(&args));   \
-            IntVal right = getIntVal(readHead(&args));  \
-            return makeBool(left OP right);          \
-        }
-
-    PRIMITIVE_INT_CMP_OP(cmp_gt, >)
-
     <<apply cases>>+=
     case TYPE_PRIMITIVE_FUNC:
-        return getPrimitiveFunc(func)(args);
+    {
+        auto primitive = getPrimitiveFunc(func);
+
+        PrimitiveFuncContext context;
+        context.args = args;
+
+        Value result = (context.*primitive)();
+        return result;
+    }
+
+    <<primitive func context members>>+=
+    Value args;
 
 
 Primitive Syntax
@@ -464,7 +432,7 @@ Primitive Syntax
     TYPE_PRIMITIVE_SYNTAX,
 
     <<types>>+=
-    typedef Value (*PrimitiveSyntax)(Value body, Value env);
+    typedef PrimitiveFunc PrimitiveSyntax;
     struct PrimitiveSyntaxObj
     {
         PrimitiveSyntax value;
@@ -483,15 +451,18 @@ Primitive Syntax
         return ((PrimitiveSyntaxObj*) getIndirectValuePtr(value))->value;
 	}
 
-    <<subroutines>>+=
-    Value builtin_if(Value syntax, Value env)
+    <<primitive func declarations>>+=
+    PRIMITIVE_FUNC_DECL(if);
+
+    <<primitive func definitions>>+=
+    PRIMITIVE_FUNC_DEF(if)
     {
-        Value conditionExpr = readHead(&syntax);
+        Value conditionExpr = readArg();
         Value condition = eval(conditionExpr, env);
 
-        Value thenExpr = readHead(&syntax);
+        Value thenExpr = readArg();
 
-        Value elseExpr = getType(syntax) == TYPE_NIL ? makeNil() : readHead(&syntax);
+        Value elseExpr = areAnyArgsLeft() ? readArg() : makeNil();
 
         if(getType(condition) != TYPE_BOOL)
         {
@@ -507,7 +478,21 @@ Primitive Syntax
 
     <<other pair eval cases>>+=
     case TYPE_PRIMITIVE_SYNTAX:
-        return getPrimitiveSyntax(func)(argExprs, env);
+    {
+        PrimitiveFuncContext context;
+        context.args = argExprs;
+        context.env = env;
+
+        auto prim = getPrimitiveSyntax(func);
+        Value result = (context.*prim)();
+        return result;
+    }
+
+    <<primitive func context members>>+=
+    Value env;
+
+    bool areAnyArgsLeft() const { return getTag(args) != TYPE_NIL; }
+
 
 
 User-Defined Functions
@@ -583,23 +568,25 @@ User-Defined Functions
         return evalBody(userFunc->body, paramEnv);
     }
 
-    <<subroutines>>+=
-    Value primitive_lambda(Value syntax, Value env)
+    <<primitive func declarations>>+=
+    PRIMITIVE_FUNC_DECL(lambda);
+
+    <<primitive func definitions>>+=
+    PRIMITIVE_FUNC_DEF(lambda)
     {
-        Value params = readHead(&syntax);
-        Value body = syntax;
+        Value params = readArg();
+        Value body = readRestArg();
 
         return makeUserFunc(params, body, env);
     }
 
-
-
-
-
-
-
-
-
+    <<primitive func context members>>+=
+    Value readRestArg()
+    {
+        Value result = args;
+        args = makeNil();
+        return result;
+    }
 
     
 
@@ -693,20 +680,26 @@ Macros
     case TYPE_MACRO:
         return eval(apply(getMacroTransformer(func), argExprs), env);
 
-	<<subroutines>>+=
-	Value primitive_macro(Value args)
+	<<primitive func declarations>>+=
+    PRIMITIVE_FUNC_DECL(macro);
+
+	<<primitive func definitions>>+=
+    PRIMITIVE_FUNC_DEF(macro)
 	{
-		Value transformer = readHead(&args);
+		Value transformer = readArg();
 		return makeMacro(transformer);
 	}
 
 Quotation
 ---------
 
-	<<subroutines>>+=
-	Value primitive_quote(Value body, Value env)
+	<<primitive func declarations>>+=
+    PRIMITIVE_FUNC_DECL(quote);
+
+	<<primitive func definitions>>+=
+    PRIMITIVE_FUNC_DEF(quote)
 	{
-		Value arg = readHead(&body);
+		Value arg = readArg();
 		return arg;
 	}
 
@@ -730,44 +723,55 @@ Homoiconicity
 		Value binding = makePair(key,val);
         head(env) = makePair(binding, head(env));
 	}
-	Value primitive_define(Value body, Value env)
+
+    <<primitive func declarations>>+=
+    PRIMITIVE_FUNC_DECL(define);
+    PRIMITIVE_FUNC_DECL(pair);
+    PRIMITIVE_FUNC_DECL(isPair);
+    PRIMITIVE_FUNC_DECL(head);
+    PRIMITIVE_FUNC_DECL(tail);
+
+    <<primitive func definitions>>+=
+    PRIMITIVE_FUNC_DEF(define)
 	{
-		Value name = readHead(&body);
-		Value value = eval(readHead(&body), env);
+        extern Value eval(Value, Value);
+        extern void define(Value, Value, Value);
+
+		Value name = readArg();
+        Value body = readArg();
+		Value value = eval(body, env);
 
 		define(env, name, value);
 
 		return value;
 	}
-	Value primitive_exit(Value args)
+    PRIMITIVE_FUNC_DEF(pair)
 	{
-		exit(0);
-	}
-	Value primitive_print(Value args)
-	{
-		Value arg = readHead(&args);
-        print(arg);
-        return makeNil();
-	}
-	Value primitive_pair(Value args)
-	{
-		Value head = readHead(&args);
-		Value tail = readHead(&args);
+        extern Value makePair(Value, Value);
+
+		Value head = readArg();
+		Value tail = readArg();
 		return makePair(head, tail);
 	}
-	Value primitive_isPair(Value args)
+    PRIMITIVE_FUNC_DEF(isPair)
 	{
-		Value arg = readHead(&args);
+        extern TypeTag getType(Value);
+
+		Value arg = readArg();
         return makeBool(getType(arg) == TYPE_TAG_PAIR);
 	}
-	Value primitive_head(Value args)
+    PRIMITIVE_FUNC_DEF(head)
 	{
-		Value pair = readHead(&args);
+        extern Value& head(Value);
+
+		Value pair = readArg();
         return head(pair);
 	}
-	Value primitive_tail(Value args)
+    PRIMITIVE_FUNC_DEF(tail)
 	{
-		Value pair = readHead(&args);
+        extern Value& tail(Value);
+
+		Value pair = readArg();
         return tail(pair);
 	}
 
@@ -779,25 +783,25 @@ Homoiconicity
     gEnv = env;
 
     <<register language primitives>>+=
-    define(env, makeSymbol("if"), makePrimitiveSyntax(&builtin_if));
-    define(env, makeSymbol("lambda"), makePrimitiveSyntax(&primitive_lambda));
-    define(env, makeSymbol("define"), makePrimitiveSyntax(&primitive_define));
-    define(env, makeSymbol("quote"), makePrimitiveSyntax(&primitive_quote));
+    define(env, makeSymbol("if"),       makePrimitiveSyntax(PRIMITIVE_FUNC(if)));
+    define(env, makeSymbol("lambda"),   makePrimitiveSyntax(PRIMITIVE_FUNC(lambda)));
+    define(env, makeSymbol("define"),   makePrimitiveSyntax(PRIMITIVE_FUNC(define)));
+    define(env, makeSymbol("quote"),    makePrimitiveSyntax(PRIMITIVE_FUNC(quote)));
 
-    define(env, makeSymbol("+"), makePrimitiveFunc(&primitive_add));
-    define(env, makeSymbol("-"), makePrimitiveFunc(&primitive_sub));
-    define(env, makeSymbol("*"), makePrimitiveFunc(&primitive_mul));
-    define(env, makeSymbol("/"), makePrimitiveFunc(&primitive_div));
+    define(env, makeSymbol("+"), makePrimitiveFunc(PRIMITIVE_FUNC(add)));
+    define(env, makeSymbol("-"), makePrimitiveFunc(PRIMITIVE_FUNC(sub)));
+    define(env, makeSymbol("*"), makePrimitiveFunc(PRIMITIVE_FUNC(mul)));
+    define(env, makeSymbol("/"), makePrimitiveFunc(PRIMITIVE_FUNC(div)));
 
-    define(env, makeSymbol(">"), makePrimitiveFunc(&primitive_cmp_gt));
+    define(env, makeSymbol(">"),    makePrimitiveFunc(PRIMITIVE_FUNC(cmp_gt)));
 
-    define(env, makeSymbol("macro"), makePrimitiveFunc(&primitive_macro));
-    define(env, makeSymbol("exit"), makePrimitiveFunc(&primitive_exit));
-    define(env, makeSymbol("print"), makePrimitiveFunc(&primitive_print));
-    define(env, makeSymbol("pair"), makePrimitiveFunc(&primitive_pair));
-    define(env, makeSymbol("pair?"), makePrimitiveFunc(&primitive_isPair));
-    define(env, makeSymbol("head"), makePrimitiveFunc(&primitive_head));
-    define(env, makeSymbol("tail"), makePrimitiveFunc(&primitive_tail));
+    define(env, makeSymbol("macro"),    makePrimitiveFunc(PRIMITIVE_FUNC(macro)));
+    define(env, makeSymbol("exit"),     makePrimitiveFunc(PRIMITIVE_FUNC(exit)));
+    define(env, makeSymbol("print"),    makePrimitiveFunc(PRIMITIVE_FUNC(print)));
+    define(env, makeSymbol("pair"),     makePrimitiveFunc(PRIMITIVE_FUNC(pair)));
+    define(env, makeSymbol("pair?"),    makePrimitiveFunc(PRIMITIVE_FUNC(isPair)));
+    define(env, makeSymbol("head"),     makePrimitiveFunc(PRIMITIVE_FUNC(head)));
+    define(env, makeSymbol("tail"),     makePrimitiveFunc(PRIMITIVE_FUNC(tail)));
 
     <<run interactive interpreter>>=
 	<<read-eval-print loop>>
