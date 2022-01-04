@@ -34,11 +34,6 @@ Value Representation
 --------------------
 
     <<value declarations>>+=
-    struct Value
-    {
-        uint64_t bits;
-    };
-
     enum
     {
         INDIRECT_TAG_BITS = 3,
@@ -56,38 +51,72 @@ Value Representation
         <<direct type tags>>
     };
 
+    struct Value
+    {
+    #if TRICKY_ENCODING
+        uint64_t bits;
+    #else
+        TypeTag tag;
+        union
+        {
+            void* ptr;
+            uint64_t bits;
+            struct Pair* pair;
+            struct Symbol* symbol;
+        };
+    #endif
+    };
+
     TypeTag getTag(Value value)
     {
+    #if TRICKY_ENCODING
         TypeTag tag = (TypeTag)(value.bits & INDIRECT_TAG_MASK);
         if(tag == TYPE_TAG_DIRECT)
         {
             tag = (TypeTag)((value.bits & DIRECT_TAG_MASK) >> DIRECT_TAG_SHIFT);
         }
         return tag;
+    #else
+        return value.tag;
+    #endif
     }
 
     void* getIndirectValuePtr(Value value)
     {
+    #if TRICKY_ENCODING
         assert(getTag(value) < TYPE_TAG_DIRECT);
 
         return (void*)(uintptr_t)(value.bits & ~(uint64_t)(DIRECT_TAG_MASK));
+    #else
+        return value.ptr;
+    #endif
     }
 
     uint32_t getDirectValueBits(Value value)
     {
+    #if TRICKY_ENCODING
         assert(getTag(value) >= TYPE_TAG_DIRECT);
         return (value.bits >> 32);
+    #else
+        return value.bits;
+    #endif
     }
 
     Value tagIndirectValue(void* ptr, TypeTag tag)
     {
         assert(tag < TYPE_TAG_DIRECT);
+        Value value;
 
+    #if TRICKY_ENCODING
         uint64_t valueBits = (uint64_t)(uintptr_t)ptr;
         assert((valueBits & INDIRECT_TAG_MASK) == 0);
 
-        Value value;
         value.bits = valueBits | tag;
+    #else
+        value.bits = 0;
+        value.tag = tag;
+        value.ptr = ptr;
+    #endif
         return value;
     }
 
@@ -96,10 +125,15 @@ Value Representation
         assert((tag >= TYPE_TAG_DIRECT));
 
         Value value;
+    #if TRICKY_ENCODING
         value.bits =
             ((uint64_t) valueBits) << 32
             | (tag << DIRECT_TAG_SHIFT)
             | TYPE_TAG_DIRECT;
+    #else
+        value.tag = tag;
+        value.bits = valueBits;
+    #endif
         return value;
     }
 

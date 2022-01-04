@@ -188,10 +188,7 @@ We therefore define the `makeNil` factory function to return the same `static` v
 
 A non-empty list is represented as a pair, with a *head* that is the first element of the list, and a *tail* that is a list of those elements after the first.
 
-    <<object header fields>>+=
-    uint64_t type;
-
-	<<direct type tags>>+=
+	<<indirect type tags>>+=
 	TYPE_TAG_PAIR,
 
 	<<types>>+=
@@ -392,7 +389,7 @@ There are some special cases we will deal with shortly, but for now let's handle
 Primitive Functions
 ------------------
 
-	<<direct type tags>>+=
+	<<indirect type tags>>+=
     TYPE_PRIMITIVE_FUNC,
 
     <<types>>+=
@@ -463,7 +460,7 @@ Primitive Functions
 Primitive Syntax
 ----------------
 
-	<<direct type tags>>+=
+	<<indirect type tags>>+=
     TYPE_PRIMITIVE_SYNTAX,
 
     <<types>>+=
@@ -516,7 +513,7 @@ Primitive Syntax
 User-Defined Functions
 ----------------------
 
-	<<direct type tags>>+=
+	<<indirect type tags>>+=
 	TYPE_USER_FUNC,
 
     <<types>>+=
@@ -651,7 +648,8 @@ Symbols are our first case of a value that does *not* evaluate to itself.
 			while(getType(bindingList) == TYPE_TAG_PAIR)
 			{
 				Value binding = head(bindingList);
-                if(head(binding).bits == value.bits)
+                Value bindingName = head(binding);
+                if(areValuesIdentical(bindingName, value))
                     return tail(binding);
 
 				bindingList = tail(bindingList);
@@ -669,7 +667,7 @@ Symbols are our first case of a value that does *not* evaluate to itself.
 Macros
 ------
 
-	<<direct type tags>>+=
+	<<indirect type tags>>+=
     TYPE_MACRO,
 
     <<types>>+=
