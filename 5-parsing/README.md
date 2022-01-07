@@ -282,6 +282,9 @@ Parser
                 return;
             lastState = state;
         }
+
+        bytecode.emitPushNil();
+        bytecode.emitReturn();
     }
 
 ### Expressions

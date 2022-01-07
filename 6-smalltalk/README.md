@@ -95,8 +95,7 @@ Smalltalk
         VMContext vmContext;
         vmContext.thread() = &vmThread;
 
-        vmContext.executeBytecode(self->bytecode);
-        return makeNil();
+        return vmContext.executeBytecode(self->bytecode);
     }
     Value invokeMessageHandler(MessageHandler* handler, Value receiver, int argCount, Value const* args)
     {
@@ -223,9 +222,6 @@ Parsing
     }
     break;
 
-    <<opcodes>>+=
-    OP_MESSAGE_SEND,
-
     <<bytecode emitter members>>+=
     ExprResult emitMessageSend(Value selector, int argCount);
 
@@ -235,9 +231,7 @@ Parsing
     {
         // push the selector...
         emitConstant(selector);
-        emitOpcode(OP_MESSAGE_SEND);
-        emitRawUInt((unsigned) argCount);
-        return 0;
+        return emitCall(argCount + 1);
     }
 
     <<primitive func context members>>+=
@@ -254,17 +248,18 @@ Parsing
 
         VMContext vmContext;
         vmContext.thread() = &vmThread;
-        vmContext.executeBytecode(bytecodeFunc->bytecode);
-        return makeNil();
+        return vmContext.executeBytecode(bytecodeFunc->bytecode);
     }
 
     <<virtual machine cases>>+=
-    case OP_MESSAGE_SEND:
+    case Opcode::Call:
     {
         unsigned argCount = readUInt();
         Value selector = popValue();
 
-        Value const* args = getValuesAtIndex(argCount + 1);
+        Value const* args = getValuesAtIndex(argCount);
+
+        assert(argCount > 0);
         Value receiver = args[0];
 
         Class* directClass = getDirectClass(receiver);
@@ -282,7 +277,7 @@ Parsing
             PrimitiveFuncContext context;
             context.args = args;
             context.argIndex = 0;
-            context.argCount = argCount+1;
+            context.argCount = argCount;
             context.receiver = receiver;
             context.func = func;
 

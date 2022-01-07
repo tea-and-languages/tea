@@ -8,10 +8,9 @@ Bytecode
 
     typedef uint8_t Code;
 
-    enum Opcode
+    enum class Opcode : Code
     {
-        OPCODE_NOP = 0,
-        OPCODE_RET,
+        Nop = 0,
         <<opcodes>>
     };
 
@@ -44,7 +43,7 @@ Virtual Machine
 
     struct VMThread
     {
-        VMFrame* frame;
+        VMFrame* frame = nullptr;
 
     //        Array<Value> stack;
     //        Array<VMFrame> frames;
@@ -129,6 +128,7 @@ Virtual Machine
 
     void pushFrame(VMFrame* newFrame)
     {
+        newFrame->parent = frame();
         frame() = newFrame;
     }
 
@@ -139,7 +139,12 @@ Virtual Machine
         return newFrame;
     }
 
-    void executeBytecode(BytecodeFunc const& func)
+    void popFrame()
+    {
+        frame() = frame()->parent;
+    }
+
+    Value executeBytecode(BytecodeFunc const& func)
     {
         auto frame = createFrame(func.stackValueCount);
         frame->func = &func;
@@ -147,10 +152,10 @@ Virtual Machine
 
         pushFrame(frame);
 
-        execute();
+        return execute();
     }
 
-    void execute()
+    Value execute()
     {
         for(;;)
         {
@@ -160,15 +165,10 @@ Virtual Machine
             {
             default:
                 error(SourceLoc(), "unexpected opcode 0x%x", (unsigned)op);
-                return;
+                return makeNil(); // TODO: makeError()
 
-            case OPCODE_NOP:
+            case Opcode::Nop:
                 // no-op means nothing to do!
-                break;
-
-            case OPCODE_RET:
-                // return from current call frame (whatever that looks like)
-                assert(!"unimplemented");
                 break;
 
             <<virtual machine cases>>
@@ -245,10 +245,11 @@ Constants
     Array<Value> constants;
 
     <<opcodes>>+=
-    OP_CONSTANT,
+    LoadConstant,
 
     <<bytecode emitter members>>+=
     ExprResult emitConstant(Value value);
+    ExprResult emitPushNil();
 
     <<bytecode definitions>>+=
     BytecodeEmitter::ExprResult BytecodeEmitter::emitConstant(Value value)
@@ -256,17 +257,67 @@ Constants
         unsigned index = constants.getCount();
         constants.add(value);
 
-        emitOpcode(OP_CONSTANT);
+        emitOpcode(Opcode::LoadConstant);
         emitRawUInt(index);
         return 0;
     }
+    BytecodeEmitter::ExprResult BytecodeEmitter::emitPushNil()
+    {
+        return emitConstant(makeNil());
+    }
 
     <<virtual machine cases>>+=
-    case OP_CONSTANT:
+    case Opcode::LoadConstant:
     {
         unsigned index = readUInt();
         Value value = frame()->func->constants[index];
         pushValue(value);
+    }
+    break;
+
+Call and Return
+---------------
+
+    <<opcodes>>+=
+    Call,
+    Return,
+
+    <<bytecode emitter members>>+=
+    ExprResult emitCall(int argCount);
+    void emitReturn();
+
+    <<bytecode definitions>>+=
+    BytecodeEmitter::ExprResult BytecodeEmitter::emitCall(int argCount)
+    {
+        emitOpcode(Opcode::Call);
+        emitRawUInt(unsigned(argCount));
+        return 0;
+    }
+    void BytecodeEmitter::emitReturn()
+    {
+        emitOpcode(Opcode::Return);
+    }
+
+    <<virtual machine cases>>+=
+    case Opcode::Return:
+    {
+        // in the simplest case, returning from a call is just
+        // a matter of popping the current frame.
+        //
+        // Well, except for one important detail... the callee
+        // will have pushed the return value (whatever it was)
+        // onto its stack, and we need to move that value onto
+        // the stack of the caller.
+        //
+        Value result = popValue();
+        popFrame();
+        if(!frame())
+        {
+            // If there is no frame being returned to, then we
+            // have finished executing this thread...
+            return result;
+        }
+        pushValue(result);
     }
     break;
 
