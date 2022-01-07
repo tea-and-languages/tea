@@ -133,6 +133,7 @@ In this section we will introduce the interface that all of our interpreters wil
 A simple implementation of input just needs a type for input streams,
 
 	<<input declarations>>=
+    typedef int32_t Char;
 	struct InputStream
 	{
 		<<`InputStream` members>>
@@ -141,7 +142,7 @@ A simple implementation of input just needs a type for input streams,
 and a way to read input one character at a time:
 
 	<<input declarations>>+=
-	int readChar(InputStream& stream);
+	Char readChar(InputStream& stream);
 
 We are intentionally being loose about the term "character" here, and will come back to it later in this section.
 

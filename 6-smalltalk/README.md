@@ -257,7 +257,8 @@ Parsing
         unsigned argCount = readUInt();
         Value selector = popValue();
 
-        Value const* args = getValuesAtIndex(argCount);
+        Value* args = getValuesAtIndex(argCount);
+        stackPtr() = args;
 
         assert(argCount > 0);
         Value receiver = args[0];
@@ -363,3 +364,55 @@ Outline of the Interpreter
     <<lexer and parser>>
     <<smalltalk function definitions>>
 
+Interactive Interpreter
+-----------------------
+
+	<<run interactive interpreter>>=
+	for(;;)
+	{
+        <<print interpreter prompt>>
+        <<read a line of input>>
+        <<evaluate the line of input>>
+        <<print the result of evaluation>>
+	}
+
+    <<print interpreter prompt>>=
+    printf("> ");
+
+    <<read a line of input>>=
+    StringSpan line = readLine(gStandardInput);
+
+    <<evaluate the line of input>>=
+    Value value = evalLine(line);
+
+    <<print the result of evaluation>>=
+    print(value);
+    printf("\n");
+
+    <<smalltalk types>>+=
+    Value evalLine(StringSpan line);
+
+    <<subroutines>>+=
+    Value evalLine(StringSpan line)
+    {
+        StringInputStream stream(line);
+
+        Lexer lexer;
+        lexer.init(&stream);
+
+        Parser parser;
+        parser.init(&lexer);
+
+        parser.parseExpr();
+        parser.bytecode.emitReturn();
+
+        // executed the bytecode for our source unit...
+
+        BytecodeFunc const& bytecodeFunc = parser.bytecode.getResult();
+        
+        VMThread vmThread;
+
+        VMContext context;
+        context.thread() = &vmThread;
+        return context.executeBytecode(bytecodeFunc);
+    }

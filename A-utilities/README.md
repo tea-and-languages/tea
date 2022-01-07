@@ -189,8 +189,81 @@ Dynamically-Allocated Arrays
 			count--;
 		}
 
+		void clear()
+		{
+			count = 0;
+		}
+
+		T const* begin() const { return elements; }
+		T const* end() const { return elements + count; }
+
     private:
         T* elements = nullptr;
         int count = 0;
         int capacity = 0;
     };
+
+Strings
+-------
+
+	<<utility declarations>>+=
+	struct StringSpan
+	{
+		StringSpan()
+		{}
+
+		StringSpan(char const* begin, char const* end)
+			: _begin(begin)
+			, _end(end)
+		{}		
+
+		char const* begin() const { return _begin; }
+		char const* end() const { return _end; }
+
+		char const* _begin = nullptr;
+		char const* _end = nullptr;
+	};
+
+	<<utility declarations>>+=
+	StringSpan readLine(InputStream& stream);
+
+	<<subroutines>>+=
+	static Array<char> lineBuffer;
+	StringSpan readLine(InputStream& stream)
+	{
+		lineBuffer.clear();
+		for(;;)
+		{
+			Char c = readChar(stream);
+			switch(c)
+			{
+			default:
+				lineBuffer.add(c);
+				continue;
+
+			case EOF:
+				break;
+
+			case '\r': case '\n':
+				lineBuffer.add('\n');
+				break;
+			}
+			break;
+		}
+		lineBuffer.add(0);
+
+		return StringSpan(lineBuffer.begin(), lineBuffer.end()-1);
+	}
+
+	<<utility declarations>>+=
+	struct StringInputStream : InputStream
+	{
+		StringInputStream(StringSpan const& span)
+		{
+			cursor = span.begin();
+			end = span.end();
+		}
+
+		void refill()
+		{}
+	};
