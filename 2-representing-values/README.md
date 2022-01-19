@@ -33,227 +33,392 @@ Many languages use a combination of static and dynamic checks.
 Value Representation
 --------------------
 
-    <<value declarations>>+=
-    enum
-    {
-        INDIRECT_TAG_BITS = 3,
-        INDIRECT_TAG_MASK = (1 << INDIRECT_TAG_BITS) - 1,
+    <<declarations>>+=
+    <<value declarations>>
 
-        DIRECT_TAG_BITS = 8,
-        DIRECT_TAG_SHIFT = INDIRECT_TAG_BITS,
-        DIRECT_TAG_MASK = ((1 << DIRECT_TAG_BITS) - 1) << DIRECT_TAG_SHIFT,
-    };
-
-    enum TypeTag
-    {
-        <<indirect type tags>>
-        TYPE_TAG_DIRECT = INDIRECT_TAG_MASK,
-        <<direct type tags>>
-    };
-
-    //#define TRICKY_ENCODING 1
+    <<once:value declarations>>+=
     struct Value
     {
-    #if TRICKY_ENCODING
-        uint64_t bits;
-    #else
-        TypeTag tag;
-        union
-        {
-            void* ptr;
-            uint64_t bits;
-            struct Pair* pair;
-            struct Symbol* symbol;
-            struct Object* object;
-        };
-    #endif
+    public:
+        <<value members>>
+
+    protected:
+        <<value protected members>>
     };
 
-    TypeTag getTag(Value value)
+### Tagging Values
+
+    <<value members>>+=
+    enum class Tag : int32_t
     {
-    #if TRICKY_ENCODING
-        TypeTag tag = (TypeTag)(value.bits & INDIRECT_TAG_MASK);
-        if(tag == TYPE_TAG_DIRECT)
-        {
-            tag = (TypeTag)((value.bits & DIRECT_TAG_MASK) >> DIRECT_TAG_SHIFT);
-        }
-        return tag;
-    #else
-        return value.tag;
-    #endif
+        <<value tags>>
+    };
+    Tag getTag() const;
+
+    <<value members>>+=
+    union Payload
+    {
+        <<value payload members>>
+    };
+
+### Direct and Indirect Storage
+
+    <<value payload members>>+=
+    typedef uintptr_t Bits;
+    Bits bits;
+
+    <<forward type declarations>>+=
+    typedef intptr_t IntVal;
+
+    <<forward type declarations>>+=
+    struct Object;
+
+    <<value payload members>>+=
+    Object* object;
+
+    <<value tags>>=
+    <<special value tags>>
+    <<simple value tags>>
+    <<object value tags>>
+
+    <<special value tags>>+=
+    Nil,
+    Object,
+    Int,
+
+    <<value members>>+=
+    Value();
+    Value(Object* object);
+    Value(IntVal intVal);
+    bool operator==(Value const& that) const;
+    IntVal getInt() const;
+    Object* getObject() const;
+
+    <<value protected members>>+=
+    typedef uint32_t BasicDirectValueBits;
+    Value::Tag getBasicTag() const;
+    BasicDirectValueBits getBasic() const;
+    void init(Tag tag, BasicDirectValueBits bits);
+
+    <<value protected members>>+=
+    static Tag getObjectTag(Object* object);
+
+    <<definitions>>+=
+    Value::Tag Value::getTag() const
+    {
+        Value::Tag basicTag = getBasicTag();
+        if(basicTag != Tag::Object)
+            return basicTag;
+        return getObjectTag(getObject());
     }
 
-    void* getIndirectValuePtr(Value value)
-    {
-    #if TRICKY_ENCODING
-        assert(getTag(value) < TYPE_TAG_DIRECT);
+### Simple Tagged Values
 
-        return (void*)(uintptr_t)(value.bits & ~(uint64_t)(INDIRECT_TAG_MASK));
-    #else
-        return value.ptr;
+We are going to define both a simple and a more optimized encoding for values that the runtime could use.
+We will start with the simple encoding, and then present the optimized one next.
+To control the choice between the two we will use a configuration `#define`:
+
+    <<configuration>>+=
+    #define USE_SIMPLE_VALUE_ENCODING 1
+    #define USE_OPTIMIZED_VALUE_ENCODING !USE_SIMPLE_VALUE_ENCODING
+
+When it comes to representing tagged values, the simplest thing that could possibly work is to directly store both a tag and a payload:
+
+    <<simple value encoding members>>+=
+    Tag _tag;
+    Payload _payload;
+
+    <<value payload members>>+=
+    #if USE_SIMPLE_VALUE_ENCODING
+    typedef IntVal EncodedIntVal;
+    IntVal intVal;
     #endif
+
+    <<value members>>+=
+    #if USE_SIMPLE_VALUE_ENCODING
+        <<simple value encoding members>>
+    #endif
+
+    <<definitions>>+=
+    #if USE_SIMPLE_VALUE_ENCODING
+        <<simple value encoding definitions>>
+    #endif
+
+
+    <<simple value encoding definitions>>+=
+    Value::Tag Value::getBasicTag() const
+    {
+        return _tag;
     }
 
-    uint32_t getDirectValueBits(Value value)
+    Object* Value::getObject() const
     {
-    #if TRICKY_ENCODING
-        assert(getTag(value) >= TYPE_TAG_DIRECT);
-        return (value.bits >> 32);
-    #else
-        return value.bits;
-    #endif
+        assert(getBasicTag() == Tag::Object);
+        return _payload.object;
     }
 
-    Value tagIndirectValue(void* ptr, TypeTag tag)
+    IntVal Value::getInt() const
     {
-        assert(tag < TYPE_TAG_DIRECT);
-        Value value;
-
-    #if TRICKY_ENCODING
-        uint64_t valueBits = (uint64_t)(uintptr_t)ptr;
-        assert((valueBits & INDIRECT_TAG_MASK) == 0);
-
-        value.bits = valueBits | tag;
-    #else
-        value.bits = 0;
-        value.tag = tag;
-        value.ptr = ptr;
-    #endif
-        return value;
+        assert(getBasicTag() == Tag::Int);
+        return _payload.intVal;
     }
 
-    Value tagDirectValue(uint32_t valueBits, TypeTag tag)
+    Value::BasicDirectValueBits Value::getBasic() const
     {
-        assert((tag >= TYPE_TAG_DIRECT));
-
-        Value value;
-    #if TRICKY_ENCODING
-        value.bits =
-            ((uint64_t) valueBits) << 32
-            | (tag << DIRECT_TAG_SHIFT)
-            | TYPE_TAG_DIRECT;
-    #else
-        value.tag = tag;
-        value.bits = valueBits;
-    #endif
-        return value;
+        assert(getBasicTag() != Tag::Object);
+        assert(getBasicTag() != Tag::Int);
+        return _payload.bits;
     }
 
+    Value::Value()
+    {
+        _tag = Tag::Nil;
+        _payload.bits = 0;
+    }
+
+    Value::Value(Object* object)
+    {
+        _tag = Tag::Object;
+        _payload.object = object;
+    }
+
+    Value::Value(IntVal intVal)
+    {
+        _tag = Tag::Int;
+        _payload.intVal = intVal;
+    }
+
+    void Value::init(Value::Tag tag, BasicDirectValueBits bits)
+    {
+        assert(tag != Tag::Object);
+        _tag = tag;
+        _payload.bits = bits;
+    }
+
+    bool Value::operator==(Value const& that) const
+    {
+        return (this->_tag == that._tag)
+            && (this->_payload.bits == that._payload.bits);
+    }
+
+### Optimized Value Encoding
+
+    <<value members>>+=
+    #if USE_OPTIMIZED_VALUE_ENCODING
+        <<optimized value encoding members>>
+    #endif
+
+    <<definitions>>+=
+    #if USE_OPTIMIZED_VALUE_ENCODING
+        <<optimized value encoding definitions>>
+    #endif
+
+    <<optimized value encoding members>>+=
+    Payload payload;
+
+    <<optimized value encoding definitions>>+=
+    Value::Tag Value::getTag() const
+    {
+        Payload::Bits bits = _payload.bits;
+        if(bits == 0) return Tag::Nil;
+        if((bits & OBJECT_TAG_MASK) == 0) return Tag::Object;
+        if(bits & 1) return Tag::Int;
+        return Tag((bits & DIRECT_TAG_MASK) >> 1) + 2;
+    }
+
+    <<value payload members>>+=
+    #if USE_OPTIMIZED_VALUE_ENCODING
+    struct EncodedIntVal
+    {
+    };
+    EncodedIntVal intVal;
+    #endif
+
+
+    <<before value payload>>+=
+    struct EncodedIntVal
+    {
+
+    };
+
+    <<optimized value encoding members>>+=
+    enum
+    {
+        OBJECT_TAG_BITS = 3,
+        OBJECT_TAG_MASK = (1 << OBJECT_TAG_BITS) - 1,
+
+        DIRECT_TAG_BITS = 8,
+        DIRECT_TAG_MASK = (1 << DIRECT_TAG_BITS) - 1,
+    }
+
+    Object* Value::getObject() const
+    {
+        assert(getTag() == Tag::Object);
+        return _payload.object;
+    }
+
+    IntVal Value::getInt() const
+    {
+        assert(getTag() == Tag::Int);
+        return _payload.intVal >> 1;
+    }
+
+    Value::BasicDirectValueBits Value::getBasic() const
+    {
+        assert(getTag() != Tag::Object);
+        assert(getTag() != Tag::Int);
+        return _payload.bits >> DIRECT_TAG_BITS;
+    }
+
+    Value::Value()
+    {
+        _payload.bits = 0;
+    }
+
+    Value::Value(Object* object)
+    {
+        _payload.object = object;
+    }
+
+    Value::Value(IntVal intVal)
+    {
+        // TODO: assertions around range!
+        _payload.intVal = (intVal << 1) | 1;
+    }
+
+    void Value::init(Value::Tag tag, BasicDirectValueBits bits)
+    {
+        assert(tag != Tag::Object);
+        assert(tag != Tag::IntVal);
+        _payload.bits = (bits << DIRECT_TAG_BITS) | (tag + 2) << 1;
+    }
+
+    bool Value::operator==(Value const& that) const
+    {
+        return this->_payalad.bits == that->_payload.bits;
+    }
+
+    <<value declarations>>+=
     bool areValuesIdentical(Value left, Value right)
     {
-        TypeTag leftTag = getTag(left);
-        TypeTag rightTag = getTag(right);
-        if(leftTag != rightTag)
-            return false;
-        
-        switch(leftTag)
-        {
-        default:
-            return left.bits == right.bits;
-
-        <<value identity cases>>
-        }
+        return left == right;
     }
 
 ### Objects
 
-    <<indirect type tags>>+=
-    //TYPE_TAG_OBJECT,
+    <<forward type declarations>>+=
+    struct Object;
+
+    <<object value tags>>=
+    #define OBJECT_CASE(NAME) NAME,
+    <<object cases>>
+    #undef OBJECT_CASE
 
     <<value declarations>>+=
-    #if 0
-    struct ObjHeader
+    <<object type representation>>
+    struct Object
     {
-        <<object header fields>>
+        virtual ~Object() {}
+
+        <<object members>>
     };
-    typedef ObjHeader Object;
 
-    Value tagObject(const ObjHeader* obj, TypeTag tag = TYPE_TAG_OBJECT)
+    <<object members>>+=
+    ObjectType type;
+    Object(ObjectType type)
+        : type(type)
+    {}
+
+    <<value members>>+=
+    Object* asObject(Tag tag) const;
+
+    <<definitions>>+=
+    Object* Value::asObject(Tag tag) const
     {
-        return tagIndirectValue(obj, tag);
+        return getTag() == tag ? getObject() : nullptr;
     }
 
-    ObjHeader* getObject(Value value)
-    {
-        assert(getTag(value) == TYPE_TAG_OBJECT);
-        return (ObjHeader*)(uintptr_t)getBaseValueBits(value);
-    }
-    #endif
+
+
 
 ### Integers
 
 We will start off slowly by defining a type `Int` for integer values.
 We start with a type tag to identify our new type of values.
 
-    <<direct type tags>>+=
-    TYPE_TAG_INT,
-
-    <<value declarations>>+=
-    typedef int32_t IntVal;
-
 For convenience we define a subroutine `makeInt` for making integer values.
-
-    <<value declarations>>+=
-    Value makeInt(IntVal value);
-
-	<<types>>+=
-	Value makeInt(IntVal value)
-	{
-        return tagDirectValue(value, TYPE_TAG_INT);
-	}
 
 Next, we define a way to test if a given `Value` is an integer.
 
-	<<types>>+=
-    IntVal getIntVal(Value value)
-	{
-        assert(getTag(value) == TYPE_TAG_INT);
-        return (IntVal) getDirectValueBits(value);
-	}
+    <<forward type declarations>>+=
+    struct IntValProxy;
+
+    <<value members>>+=
+    IntValProxy* asInt() const;
+
+    <<value declarations>>+=
+    struct IntValProxy : Value
+    {
+        operator IntVal() const { return getInt(); }
+    };
+
+	<<definitions>>+=
+    IntValProxy* Value::asInt() const
+    {
+        return (getTag() == Value::Tag::Int) ? (IntValProxy*)this : nullptr;
+    }
 
 Printing an `Int` is straightforward:
 
 	<<print cases>>+=
-	case TYPE_TAG_INT:
-		printf("%lld", (long long)getIntVal(value));
+	case Value::Tag::Int:
+		printf("%lld", (long long) *value.asInt());
 		break;
 
 ### Booleans
 
 Next we need a type for Boolean truth values.
 
-	<<direct type tags>>+=
-	TYPE_BOOL,
+    <<simple value tags>>+=
+    Bool,
 
 There can only be two possible Boolean values, so rather than
 create them on the fly, we will create them once and re-use them.
 
-    <<value declarations>>+=
-    Value makeBool(bool value);
+    <<forward type declarations>>+=
+    struct BoolValue;
 
-	<<types>>+=
-    Value makeBool(bool value)
+    <<value declarations>>+=
+    struct BoolValue : Value
     {
-        return tagDirectValue( value ? 1 : 0, TYPE_BOOL );
+        operator bool() const { return getBasic() != 0; }
+    };
+
+    <<value members>>+=
+    Value(bool value);
+    BoolValue* asBool();
+
+	<<definitions>>+=
+    Value::Value(bool value)
+    {
+        init(Tag::Bool, value ? 1 : 0);
+    }
+
+    BoolValue* Value::asBool()
+    {
+        return getTag() == Tag::Bool ? (BoolValue*)this : nullptr;
     }
 
 Next, we define a way to test if a given `Value` is a Boolean.
 
-	<<types>>+=
-    bool getBoolVal(Value value)
-	{
-        assert(getTag(value) == TYPE_BOOL);
-        return getDirectValueBits(value) != 0;
-	}
-
 	<<print cases>>+=
-	case TYPE_BOOL:
-        puts(getBoolVal(value) ? "true" : "false");
+	case Value::Tag::Bool:
+        puts(*value.asBool() ? "true" : "false");
 		break;
 
 ### Errors
 
-    <<direct type tags>>=
+    <<simple value tags>>=
     TYPE_TAG_ERROR,
     TYPE_TAG_VOID,
 
@@ -261,14 +426,9 @@ Next, we define a way to test if a given `Value` is a Boolean.
 
 We define nil as its own  type of object:
 
-	<<direct type tags>>+=
-	TYPE_NIL,
-
-	<<value declarations>>+=
-	Value makeNil()
-	{
-        return tagDirectValue(0, TYPE_NIL);
-	}
+    <<value members>>+=
+    static Value getNil() { return Value(); }
+    bool isNil() const { return getTag() == Tag::Nil; }
 
 ### Strings
 
@@ -276,29 +436,43 @@ TODO: logic to allocate and manage strings
 
 ### Symbols
 
-	<<indirect type tags>>+=
-	TYPE_TAG_SYMBOL,
+    <<object cases>>+=
+    OBJECT_CASE(Symbol)
 
-	<<types>>+=
-	struct Symbol
+	<<value declarations>>+=
+    <<string declarations>>
+	struct Symbol : Object
 	{
-		char const* value;
+        Symbol();
+
+        StringSpan text;
 		<<additional symbol members>>
 	};
 
-    <<value declarations>>+=
-	Value makeSymbol(char const* value);
+	<<additional symbol members>>=
+    static Symbol* get(StringSpan const& text);
+    StringSpan getText() { return text; }
 
-	<<types>>+=
-	Value makeSymbol(char const* value)
+	<<definitions>>+=
+    Symbol::Symbol()
+        : Object(GET_OBJECT_TYPE(Symbol))
+    {}
+	Symbol* Symbol::get(StringSpan const& text)
 	{
 		<<try to find existing symbol>>
 
+        size_t size = text.getSize();
+        char* buffer = (char*) malloc(size + 1);
+        memcpy(buffer, text.begin(), size);
+        buffer[size] = 0;
+
 		Symbol* result = new Symbol();
-		result->value = _strdup(value);
+		result->text = StringSpan(buffer, size);
 		<<add new symbol>>
-		return tagIndirectValue(result, TYPE_TAG_SYMBOL);
+        return result;
 	}
+
+
 
 	<<additional symbol members>>=
 	Symbol* next;
@@ -307,20 +481,13 @@ TODO: logic to allocate and manage strings
 	static Symbol* gSymbols = NULL;
 	for(Symbol* sym = gSymbols; sym; sym = sym->next)
 	{
-		if(strcmp(sym->value, value) == 0)
-			return tagIndirectValue(sym, TYPE_TAG_SYMBOL);
+		if(sym->getText() == text)
+            return sym;
 	}
 
 	<<add new symbol>>=
 	result->next = gSymbols;
 	gSymbols = result;
-
-	<<types>>+=
-	const char* getSymbolVal(Value value)
-	{
-        assert(getTag(value) == TYPE_TAG_SYMBOL);
-        return ((Symbol*) getIndirectValuePtr(value))->value;
-	}
 
 
 TODO: Make symbols hold a reference to the string
@@ -410,14 +577,14 @@ The way we print values will, in general, depend on their type:
 	<<value declarations>>+=
 	void print(Value value);
 
-	<<subroutines>>+=
+	<<definitions>>+=
 	void print(Value value)
 	{
 		<<print implementation>>
 	}
 
 	<<print implementation>>=
-	switch(getTag(value))
+	switch(value.getTag())
 	{
 		<<print cases>>
 	}
@@ -451,7 +618,7 @@ We define a fallback case for `print` to handle any types that don't have a conv
     #undef PRIMITIVE_FUNC_DECL
     };
 
-    <<primitive func declarations>>+=
+    <<once:primitive func declarations>>+=
 
     PRIMITIVE_FUNC_DECL(print);
     PRIMITIVE_FUNC_DECL(exit);
@@ -461,7 +628,7 @@ We define a fallback case for `print` to handle any types that don't have a conv
         {                                               \
             IntVal left = readIntArg();                 \
             IntVal right = readIntArg();                \
-            return makeInt(left OP right);              \
+            return left OP right;              \
         }
 
     PRIMITIVE_INT_OP(add, +)
@@ -474,20 +641,20 @@ We define a fallback case for `print` to handle any types that don't have a conv
         {                                           \
             IntVal left = readIntArg();   \
             IntVal right = readIntArg();  \
-            return makeBool(left OP right);          \
+            return left OP right;          \
         }
 
     PRIMITIVE_INT_CMP_OP(cmp_gt, >)
 
-    <<subroutines>>+=
+    <<definitions>>+=
     #define PRIMITIVE_FUNC_DEF(NAME) PrimitiveFuncResult PrimitiveFuncContext::primitive_##NAME()
     <<primitive func definitions>>
     #undef PRIMITIVE_FUNC_DEF
 
-    <<subroutines>>+=
+    <<definitions>>+=
     IntVal PrimitiveFuncContext::readIntArg()
     {
-        return getIntVal(readArg()); // TODO: actual error checking?
+        return readArg().getInt();
     }
 
     <<primitive func definitions>>+=
@@ -499,6 +666,6 @@ We define a fallback case for `print` to handle any types that don't have a conv
 	{
 		Value arg = readArg();
         print(arg);
-        return makeNil();
+        return Value::getNil();
 	}
 

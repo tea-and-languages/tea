@@ -23,17 +23,21 @@ The job of the interpreter is to read and execute commands one by one.
 
 ### Reading a Command Name
 
-    <<utility functions>>+=
+	<<declarations>>+=
+	Char peekChar();
+	Char readChar();
+
+    <<definitions>>+=
     char const* readName()
     {
         // skip whitespace
         while(isSpace(peekChar()))
-            getchar();
+            readChar();
 
         static char buffer[1024];
         char* cursor = buffer;
         while(!isSpace(peekChar()))
-            *cursor++ = getchar();
+            *cursor++ = readChar();
         *cursor++ = 0;
         return buffer;
     }
@@ -185,26 +189,28 @@ One of the simplest models for passing data between commands is to use a *stack*
 
 Our stack will consist of simple values, and will be stored in a fixed-size region of memory.
 
-	<<stack definition>>=
+	<<definitions>>+=
     Value gStack[kMaxStackSize];
     Value* SP = gStack;
 
 The values we store on the stack will all be sized to match the pointer/"word" size of the host processor.
 
-	<<value type>>=
+	<<declarations>>+=
 	typedef uintptr_t Value;
 
 Pushing and popping values from the stack is accomplished with some simpler helper functions.
 
-	<<stack definition>>+=
+	<<definitions>>+=
 	inline void push(Value value) { *SP++ = value; }
 	inline Value pop() { return *--SP; }
 
 The stack memory (and memory throughout Forth) is not typed or "safe"; it is possible to write a word as an intereger and then later read it as a pointer.
 We can still define typed versons of `push` and `pop` to make accessing values on the stack with an expected type easier.
 
-	<<stack definition>>+=
+	<<declarations>>+=
 	typedef intptr_t Int;
+
+	<<definitions>>+=
 	inline void pushInt(Int intValue) { push(Value(intValue)); }
 	inline Int popInt() { return Int(pop()); }
 
@@ -237,7 +243,7 @@ When we are simply executing commands immediately, we will handle an integer lit
 		<<handle an integer literal to be compiled>>
 	}
 
-	<<utility functions>>+=
+	<<definitions>>+=
 	bool tryParseIntegerLiteral(const char* text, Int* outValue)
 	{
 		Int value = 0;
@@ -407,7 +413,7 @@ The same basic interpreter loop we have been building is also responsible for m
 Control Flow
 ------------
 
-	<<subroutines>>+=
+	<<definitions>>+=
 	enum Mode { kMode_Interpret, kMode_Compile };
 	Mode gMode = kMode_Interpret;
 
@@ -416,7 +422,7 @@ Control Flow
 
 
 
-	<<defines>>+=
+	<<declarations>>+=
 	enum { kMaxStackSize = 1024 };
 	enum { kMaxHeapSize = 1024 };
 
@@ -426,7 +432,7 @@ Control Flow
 	<<dependencies>>+=
 	#include <inttypes.h>
 
-	<<subroutines>>=
+	<<definitions>>+=
 
 	<<defines>>
 	<<value type>>
@@ -435,15 +441,14 @@ Control Flow
 
     bool isImmediate(Command* word) { return false; }
 
-	<<stack definition>>
-
-    int peekChar()
+    Char peekChar()
     {
-        int c = getchar();
-        ungetc(c, stdin);
-        return c;
+		return peekChar(gStandardInput);
     }
-	<<utility functions>>
+    Char readChar()
+    {
+		return readChar(gStandardInput);
+    }
 
 	<<vm interpreter>>
 
@@ -474,7 +479,7 @@ Control Flow
 Extras
 ------
 
-	<<subroutines>>+=
+	<<definitions>>+=
     void readSourceStream(InputStream& stream)
 	{
 		// TODO: fill in for the Forth-y case...

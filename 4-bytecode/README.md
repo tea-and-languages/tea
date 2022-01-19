@@ -4,7 +4,10 @@ A Simple Bytecode and Virtual Machine
 Bytecode
 --------
 
-    //<<bytecode types>>=
+    <<declarations>>+=
+    <<bytecode declarations>>
+
+    //<<once:bytecode declarations>>+=
 
     typedef uint8_t Code;
 
@@ -29,6 +32,21 @@ Virtual Machine
 
     //<<bytecode declarations>>=
 
+    struct VMEnv
+    {
+        struct Binding
+        {
+            Value       key;
+            Value       value;
+            Binding*  next;
+        };
+
+        Binding*  bindings;
+        VMEnv*      parent;
+
+        <<vm environment members>>
+    };
+
     struct VMFrame
     {
         BytecodeFunc const*     func = nullptr;
@@ -43,10 +61,8 @@ Virtual Machine
 
     struct VMThread
     {
-        VMFrame* frame = nullptr;
-
-    //        Array<Value> stack;
-    //        Array<VMFrame> frames;
+        VMFrame*    frame       = nullptr;
+        VMEnv*      globalEnv   = nullptr;
 
         <<vm thread members>>
     };
@@ -155,7 +171,58 @@ Virtual Machine
         return execute();
     }
 
-    Value execute()
+    Value lookupGlobal(Value name)
+    {
+        for(auto env = _thread->globalEnv; env; env = env->parent)
+        {
+            for(auto binding = env->bindings; binding; binding = binding->next)
+            {
+                if(areValuesIdentical(name, binding->key))
+                    return binding->value;
+            }
+        }
+        return Value::getNil();
+    }
+
+    Value execute();
+
+    <<vm environment members>>+=
+    Binding* lookUpBinding(Symbol* name);
+    void assign(Symbol* name, Value value);
+    void assign(StringSpan const& name, Value value);
+
+    <<definitions>>+=
+    VMEnv::Binding* VMEnv::lookUpBinding(Symbol* name)
+    {
+        for(Binding* b = bindings; b; b = b->next)
+        {
+            if(areValuesIdentical(b->key, name))
+                return b;
+        }
+        return nullptr;
+    }
+
+    void VMEnv::assign(StringSpan const& name, Value value)
+    {
+        assign(Symbol::get(name), value);
+    }
+
+    void VMEnv::assign(Symbol* name, Value value)
+    {
+        Binding* binding = lookUpBinding(name);
+        if(!binding)
+        {
+            binding = new Binding();
+            binding->key = name;
+
+            binding->next = bindings;
+            bindings = binding;
+        }
+        binding->value = value;
+    }
+
+    <<definitions>>+=
+    Value VMContext::execute()
     {
         for(;;)
         {
@@ -165,7 +232,7 @@ Virtual Machine
             {
             default:
                 error(SourceLoc(), "unexpected opcode 0x%x", (unsigned)op);
-                return makeNil(); // TODO: makeError()
+                return Value::getNil(); // TODO: makeError()
 
             case Opcode::Nop:
                 // no-op means nothing to do!
@@ -251,7 +318,7 @@ Constants
     ExprResult emitConstant(Value value);
     ExprResult emitPushNil();
 
-    <<bytecode definitions>>+=
+    <<definitions>>+=
     BytecodeEmitter::ExprResult BytecodeEmitter::emitConstant(Value value)
     {
         unsigned index = constants.getCount();
@@ -263,7 +330,7 @@ Constants
     }
     BytecodeEmitter::ExprResult BytecodeEmitter::emitPushNil()
     {
-        return emitConstant(makeNil());
+        return emitConstant(Value::getNil());
     }
 
     <<virtual machine cases>>+=
@@ -286,7 +353,7 @@ Call and Return
     ExprResult emitCall(int argCount);
     void emitReturn();
 
-    <<bytecode definitions>>+=
+    <<definitions>>+=
     BytecodeEmitter::ExprResult BytecodeEmitter::emitCall(int argCount)
     {
         emitOpcode(Opcode::Call);
@@ -318,6 +385,32 @@ Call and Return
             return result;
         }
         pushValue(result);
+    }
+    break;
+
+Global Variables
+----------------
+
+    <<opcodes>>+=
+    LoadGlobal,
+
+    <<bytecode emitter members>>+=
+    ExprResult emitLoadGlobal(Value name);
+
+    <<definitions>>+=
+    BytecodeEmitter::ExprResult BytecodeEmitter::emitLoadGlobal(Value name)
+    {
+        emitConstant(name);
+        emitOpcode(Opcode::LoadGlobal);
+        return 0;
+    }
+
+    <<virtual machine cases>>+=
+    case Opcode::LoadGlobal:
+    {
+        Value name = popValue();
+        Value value = lookupGlobal(name);
+        pushValue(value);
     }
     break;
 

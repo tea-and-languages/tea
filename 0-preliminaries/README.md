@@ -80,7 +80,10 @@ Certain utilities
 Error Handling
 --------------
 
-    <<source location declarations>>=
+    <<declarations>>+=
+    <<source location declarations>>
+
+    <<once:source location declarations>>=
     struct SourceLoc
     {
         const char* file = NULL;
@@ -128,6 +131,11 @@ Reading Input
 Every programming language implementation needs to read input source code, whether it is files of code stored on disk or commands specified interactively via a console.
 In this section we will introduce the interface that all of our interpreters will use to read input, but we will defer the implementation to an appendix.
 
+    <<declarations>>+=
+    <<input declarations>>
+
+    <<once:input declarations>>
+
 ### Basics of Input
 
 A simple implementation of input just needs a type for input streams,
@@ -153,7 +161,7 @@ When an input stream is at its end, the `readChar()` function will return `-1` (
 When reading structured input, it is often helpful to be able to look ahead to the next character that will be returned.
 
 	<<input declarations>>+=
-	int peekChar(InputStream& stream);
+	Char peekChar(InputStream& stream);
 
     SourceLoc getLoc(InputStream& stream);
 
@@ -187,18 +195,11 @@ Organization of the Interpreter Program
 
     //<<interpreter program>>=
     <<dependencies>>
-    <<source location declarations>>
-	<<input declarations>>
-    <<utility declarations>>
-	<<utility code>>
-    <<options declarations>>
-    <<options code>>
-    <<forward declarations>>
-	<<types>>
-    <<subroutine declarations>>
-	<<subroutines>>
-	<<prelude definition>>
-    <<main entry point>>
+    <<configuration>>
+    <<constants>>
+    <<declarations>>
+    <<definitions>>
+    <<main entry point>>    
 
 	//<<dependencies>>+=
     #include <assert.h>
@@ -208,6 +209,12 @@ Organization of the Interpreter Program
     #include <stdlib.h>
 	#include <string.h>
 	#include <ctype.h>
+
+    <<declarations>>=
+    <<forward type declarations>>
+
+    <<constants>>+=
+    <<prelude definition>>
 
  ### The Main Entry Point
  
@@ -231,7 +238,10 @@ Organization of the Interpreter Program
 
 #### Options Parsing Nonsense
 
-    //<<options declarations>>=
+    //<<definitions>>+=
+    <<options declarations>>
+
+    //<<once:options declarations>>=
     struct Options
     {
         <<options members>>
@@ -245,7 +255,7 @@ Organization of the Interpreter Program
     const char* const* sourceFiles;
     int sourceFileCount;
 
-    //<<options code>>=
+    //<<definitions>>+=
     void parseOptions(Options* outOptions, int argc, char** argv)
     {
         char** argCursor = argv;
@@ -287,7 +297,10 @@ Organization of the Interpreter Program
 
 #### Handling Input Files
 
-    <<forward declarations>>+=
+    <<declarations>>+=
+    <<input source file declarations>>
+
+    <<once:input source file declarations>>=
     void readSourceFile(const char* path);
     void readSourceStream(InputStream& stream);
 
@@ -300,7 +313,7 @@ Organization of the Interpreter Program
         readSourceFile(sourceFilePath);
     }
 
-	<<subroutines>>+=
+	<<definitions>>+=
     void readSourceFile(const char* path)
     {
         SourceLoc loc;

@@ -23,7 +23,7 @@ set LANG=forth
 set LANG_CHAPTER=1-forth\README.md
 
 echo build.bat: brewing %LANG%...
-call %BREW% %BREWOPTS% %LANG_CHAPTER% %PRELIMINARIES% %UTILITIES%
+call %BREW% %BREWOPTS% %PRELIMINARIES% %UTILITIES% %LANG_CHAPTER%
 
 echo build.bat: building %LANG%...
 call %COMPILE% /nologo %SRCDIR%\%LANG%.cpp /link /out:%BINDIR%%LANG%.exe setargv.obj
@@ -33,7 +33,7 @@ set LANG=lisp
 set LANG_CHAPTER=3-lisp\README.md
 
 echo build.bat: brewing %LANG%...
-call %BREW% %BREWOPTS% %LANG_CHAPTER% %PRELIMINARIES% %UTILITIES% %REPRESENTING_VALUES%
+call %BREW% %BREWOPTS% %PRELIMINARIES% %UTILITIES% %REPRESENTING_VALUES% %LANG_CHAPTER%
 
 echo build.bat: building %LANG%...
 call %COMPILE% /nologo %SRCDIR%\%LANG%.cpp /link /out:%BINDIR%%LANG%.exe setargv.obj
@@ -43,7 +43,7 @@ set LANG=smalltalk
 set LANG_CHAPTER=6-smalltalk\README.md
 
 echo build.bat: brewing %LANG%...
-call %BREW% %BREWOPTS% %LANG_CHAPTER% %PRELIMINARIES% %UTILITIES% %REPRESENTING_VALUES% %BYTECODE% %PARSING%
+call %BREW% %BREWOPTS% %PRELIMINARIES% %UTILITIES% %REPRESENTING_VALUES% %BYTECODE% %PARSING% %LANG_CHAPTER%
 
 echo build.bat: building %LANG%...
 call %COMPILE% /nologo %SRCDIR%\%LANG%.cpp /link /out:%BINDIR%%LANG%.exe setargv.obj

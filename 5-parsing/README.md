@@ -13,6 +13,9 @@ If tokens are like words, then a parser is responsible for recognizing phrases, 
 Tokens
 ------
 
+    <<declarations>>+=
+    <<token declarations>>
+
     <<once:token declarations>>+=
     enum TokenCode
     {
@@ -30,7 +33,7 @@ Tokens
     };
     const char* getTokenName(TokenCode code);
 
-    <<token definitions>>+=
+    <<definitions>>+=
     const char* getTokenName(TokenCode code)
     {
         return "TODO";
@@ -38,6 +41,9 @@ Tokens
 
 Lexer
 -----
+
+    <<declarations>>+=
+    <<lexer declarations>>
 
     <<once:lexer declarations>>+=
     <<token declarations>>
@@ -58,7 +64,7 @@ Lexer
         TokenCode lexTokenImpl(Value* outValue);
     };
 
-    <<lexer definitions>>+=
+    <<definitions>>+=
     TokenCode Lexer::lexTokenImpl(Value* outValue)
     {
         int c = get();
@@ -167,7 +173,7 @@ Lexer
                     continue;
 
                 default:
-                    *outValue = makeInt(value);
+                    *outValue = value;
                     return TOK_INTEGER_LITERAL;
                 }
             }
@@ -188,15 +194,53 @@ Lexer
             buffer.add(char(get()));
         }
         buffer.add(0);
-        *outValue = makeSymbol(buffer.getBuffer());
+
+        *outValue = Symbol::get(StringSpan(buffer.begin(),  buffer.end()));
+
+        if(peek() == ':')
+        {
+            get();
+            return TOK_KEYWORD;
+        }
+
         return TOK_IDENTIFIER;
     }
+
+    <<token codes>>+=
+    TOK_KEYWORD,
+
+### Symbols
+
+    <<token codes>>+=
+    TOK_SYMBOL_LITERAL,
+
+    <<lexer cases>>+=
+    case '#':
+        {
+            if(isIdentifierStart(peek()))
+            {
+                Array<char> buffer;
+                while(isIdentifier(peek()))
+                {
+                    buffer.add(char(get()));
+                }
+                buffer.add(0);
+
+                *outValue = Symbol::get(StringSpan(buffer.begin(), buffer.end()));
+
+                return TOK_SYMBOL_LITERAL;
+            }
+        }
+        break;
+
+
 
 Parser
 ------
 
     <<once:parser declarations>>+=
     <<lexer declarations>>
+    <<bytecode declarations>>
     struct Parser
     {
         Lexer*  lexer;
@@ -266,7 +310,7 @@ Parser
         <<parser members>>
     };
 
-    <<parser definitions>>+=
+    <<definitions>>+=
     void Parser::init(Lexer* lexer)
     {
         this->lexer = lexer;
@@ -297,8 +341,9 @@ Parser
 
     <<parser members>>+=
     ExprResult parseSimpleExpr();
+    ExprResult identifierExpr(Value name);
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Parser::ExprResult Parser::parseSimpleExpr()
     {
         switch(peekTokenCode())
@@ -313,10 +358,19 @@ Parser
             break;
 
         case TOK_INTEGER_LITERAL:
+        case TOK_SYMBOL_LITERAL:
             {
                 Value value = token.value;
                 advance();
                 return bytecode.emitConstant(value);
+            }
+
+        case TOK_IDENTIFIER:
+            {
+                Value name = token.value;
+                advance();
+
+                return identifierExpr(name);
             }
 
         default:
@@ -326,13 +380,20 @@ Parser
             return 0;
         }
     }
+    Parser::ExprResult Parser::identifierExpr(Value name)
+    {
+        // TODO: need to handle the case of local bindings...
+
+        return bytecode.emitLoadGlobal(name);
+    }
+
 
 ### Postfix Expressions
 
     <<parser members>>+=
     ExprResult parsePostfixExpr();
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Parser::ExprResult Parser::parsePostfixExpr()
     {
         ExprResult result = parseSimpleExpr();
@@ -354,7 +415,7 @@ Parser
     <<parser members>>+=
     ExprResult parsePrefixExpr();
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Parser::ExprResult Parser::parsePrefixExpr()
     {
         switch(peekTokenCode())
@@ -369,10 +430,7 @@ Parser
 Structure
 ---------
 
-    //<<lexer and parser>>=
+    <<declarations>>+=
     <<token declarations>>
-    <<token definitions>>
     <<lexer declarations>>
-    <<lexer definitions>>
     <<parser declarations>>
-    <<parser definitions>>

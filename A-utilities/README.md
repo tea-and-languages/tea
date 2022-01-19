@@ -10,7 +10,7 @@ This section defines utility code that is shared across all the language impleme
     SourceLoc   loc;
 	virtual void refill() {}
 
-	<<utility code>>+=
+	<<definitions>>+=
 	bool isAtEnd(InputStream& stream)
 	{
 		if(stream.cursor == stream.end)
@@ -20,7 +20,7 @@ This section defines utility code that is shared across all the language impleme
 		return stream.cursor == stream.end;
 	}
 
-	//<<utility code>>+=
+	//<<definitions>>+=
 	int readChar(InputStream& stream)
 	{
 		if(isAtEnd(stream))
@@ -47,7 +47,7 @@ This section defines utility code that is shared across all the language impleme
         return '\n';        
     }
 
-	//<<utility code>>+=
+	//<<definitions>>+=
 	int peekChar(InputStream& stream)
 	{
 		if(isAtEnd(stream))
@@ -56,7 +56,7 @@ This section defines utility code that is shared across all the language impleme
 		return *stream.cursor;
 	}
 
-    //<<utility code>>+=
+    //<<definitions>>+=
     SourceLoc getLoc(InputStream& stream)
     {
         return stream.loc;
@@ -65,7 +65,7 @@ This section defines utility code that is shared across all the language impleme
 Standard Input
 ==============
 
-	<<utility code>>+=
+	<<definitions>>+=
 	#define INPUT_BUFFER_SIZE 1024
 	struct StandardInputStream : InputStream
 	{
@@ -98,7 +98,10 @@ Standard Input
 Text Utilities
 ==============
 
-	<<utility declarations>>+=
+	<<declarations>>+=
+	<<character classification declarations>>
+
+	<<once:character classification declarations>>+=
 	bool isSpace(int c);
 	bool isDigit(int c);
 	bool isAlpha(int c);
@@ -106,7 +109,7 @@ Text Utilities
     bool isIdentifierStart(int c);
     bool isIdentifier(int c);
 
-	<<utility code>>+=
+	<<definitions>>+=
 	void skipSpace(InputStream& stream)
 	{
 		while(isSpace(peekChar(stream)))
@@ -156,7 +159,10 @@ Exercise for the reader: extend the `readChar()` and `peekChar()` routines to su
 Dynamically-Allocated Arrays
 ----------------------------
 
-	<<utility declarations>>+=
+	<<declarations>>+=
+	<<array declarations>>
+
+	<<once:array declarations>>+=
     template<typename T>
     struct Array
     {
@@ -206,7 +212,10 @@ Dynamically-Allocated Arrays
 Strings
 -------
 
-	<<utility declarations>>+=
+	<<declarations>>+=
+	<<string declarations>>
+
+	<<once:string declarations>>+=
 	struct StringSpan
 	{
 		StringSpan()
@@ -215,19 +224,48 @@ Strings
 		StringSpan(char const* begin, char const* end)
 			: _begin(begin)
 			, _end(end)
-		{}		
+		{}
+
+		StringSpan(const char* begin, size_t size)
+			: _begin(begin)
+			, _end(begin + size)
+		{}
+
+		template<size_t N>
+		StringSpan(const char (&text)[N])
+			: _begin(text)
+			, _end(text + N-1)
+		{}
+
+		size_t getSize() const { return _end - _begin; }
 
 		char const* begin() const { return _begin; }
 		char const* end() const { return _end; }
 
 		char const* _begin = nullptr;
 		char const* _end = nullptr;
+
+		bool operator==(StringSpan const& that) const;
 	};
 
-	<<utility declarations>>+=
+	<<definitions>>+=
+	bool StringSpan::operator==(StringSpan const& that) const
+	{
+		size_t size = getSize();
+		if(size != that.getSize())
+			return false;
+
+		return memcmp(begin(), that.begin(), size) == 0;
+	}
+
+
+	<<declarations>>+=
+	<<once:string input stream declarations>>
+
+	<<once:string input stream declarations>>+=
 	StringSpan readLine(InputStream& stream);
 
-	<<subroutines>>+=
+	<<definitions>>+=
 	static Array<char> lineBuffer;
 	StringSpan readLine(InputStream& stream)
 	{
@@ -255,7 +293,12 @@ Strings
 		return StringSpan(lineBuffer.begin(), lineBuffer.end()-1);
 	}
 
-	<<utility declarations>>+=
+	<<declarations>>+=
+	<<input stream declarations>>
+	<<string declarations>>
+	<<string input stream declarations>>
+
+	<<string input stream declarations>>+=
 	struct StringInputStream : InputStream
 	{
 		StringInputStream(StringSpan const& span)
@@ -266,4 +309,27 @@ Strings
 
 		void refill()
 		{}
+	};
+
+	<<declarations>>+=
+	struct StringBuffer
+	{
+	public:
+		StringSpan getText() const
+		{
+			return StringSpan(data.begin(), data.end());
+		}
+
+		void reset()
+		{
+			data.clear();
+		}
+
+		void writeChar(Char c)
+		{
+			data.add(c);
+		}
+
+	private:
+		Array<char> data;
 	};

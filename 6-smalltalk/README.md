@@ -1,13 +1,10 @@
 Smalltalk
 =========
 
-    <<indirect type tags>>+=
-    TYPE_TAG_OBJECT,
-
-    <<utility declarations>>+=
+    <<forward type declarations>>+=
     struct Class;
 
-	<<smalltalk types>>+=
+	<<declarations>>+=
 
     struct FuncObj;
 
@@ -18,31 +15,39 @@ Smalltalk
         MessageHandler*     next;
     };
 
-    struct Object
-    {
-        Class* directClass;
-    };
-    Object* getObject(Value value)
-    {
-        assert(getTag(value) == TYPE_TAG_OBJECT);
-        return (Object*) getIndirectValuePtr(value);
-    }
+    <<object type representation>>=
+    typedef Class* ObjectType;
+    #define GET_OBJECT_TYPE(NAME) g##NAME##Class
 
+    <<object members>>+=
+    Class* directClass;
+
+	<<declarations>>+=
     struct FuncObj : Object
     {
+        FuncObj();
+
         PrimitiveFunc func;
     };
     struct BytecodeFuncObj : FuncObj
     {
+        BytecodeFuncObj();
+
         BytecodeFunc bytecode;
     };
 
-    struct Class
+    struct Class : Object
     {
-        Object asObject;
+        Class(Class* metaClass, Value::Tag tag)
+            : Object(metaClass)
+            , tag(tag)
+        {}
 
         // base class
         Class* directBase;
+
+        // Value tag
+        Value::Tag tag;
 
         // slots for storage
         int slotCount;
@@ -50,26 +55,43 @@ Smalltalk
         // dictionary for message lookup
         MessageHandler* messageHandlers;
     };
+    Class* gClassClass;
     Class* gIntClass;
+    Class* gSymbolClass;
+    Class* gFuncObjClass;
+    Class* gBytecodeFuncObjClass;
 
-    <<smalltalk function declarations>>+=
+    <<declarations>>+=
     Class* getDirectClass(Value receiver);
     MessageHandler* lookUpMessageHandler(Class* directClass, Value selector);
 
-    //<<smalltalk function definitions>>+=
+    //<<definitions>>+=
+    Value::Tag Value::getObjectTag(Object* object)
+    {
+        return object->directClass->tag;
+    }
+
+    FuncObj::FuncObj()
+        : Object(GET_OBJECT_TYPE(FuncObj))
+    {}
+
+    BytecodeFuncObj::BytecodeFuncObj()
+    {}
+
+    //<<definitions>>+=
     Class* getDirectClass(Value receiver)
     {
-        switch(getTag(receiver))
+        switch(receiver.getTag())
         {
         default:
             // error case
             return nullptr;
 
-        case TYPE_TAG_INT:
+        case Value::Tag::Int:
             return gIntClass;
 
-        case TYPE_TAG_OBJECT:
-            return getObject(receiver)->directClass;
+        case Value::Tag::Object:
+            return receiver.getObject()->directClass;
         }
     }
     MessageHandler* lookUpMessageHandler(Class* directClass, Value selector)
@@ -147,7 +169,7 @@ Smalltalk
 
 
 
-	<<subroutines>>+=
+	<<definitions>>+=
     <<parser declarations>>
     void readSourceStream(InputStream& stream)
 	{
@@ -173,7 +195,7 @@ Smalltalk
 Parsing
 -------
 
-    <<smalltalk function definitions>>=
+    <<definitions>>+=
     void Parser::parseTopLevelItem()
     {
         parseStmt();
@@ -218,7 +240,7 @@ Parsing
         ExprResult arg = parseSimpleExpr();
 
         // Emit a message sense for `+`
-        bytecode.emitMessageSend(makeSymbol("+"), 1);
+        bytecode.emitMessageSend(Symbol::get("+"), 1);
     }
     break;
 
@@ -226,7 +248,7 @@ Parsing
     ExprResult emitMessageSend(Value selector, int argCount);
 
 
-    <<bytecode definitions>>+=
+    <<definitions>>+=
     BytecodeEmitter::ExprResult BytecodeEmitter::emitMessageSend(Value selector, int argCount)
     {
         // push the selector...
@@ -237,7 +259,7 @@ Parsing
     <<primitive func context members>>+=
     Value invokeBytecodeFunc();
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value PrimitiveFuncContext::invokeBytecodeFunc()
     {
         auto bytecodeFunc = (BytecodeFuncObj*) func;
@@ -308,7 +330,7 @@ Primitive Func Stuff
     int argIndex;
     int argCount;
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value PrimitiveFuncContext::readArg()
     {
         return args[argIndex++];
@@ -317,9 +339,13 @@ Primitive Func Stuff
 Setting up the Built-in Classes
 -------------------------------
 
+    <<bytecode declarations>>+=
+    VMEnv gBuiltinEnv;
 
     //<<register language primitives>>+=
-    gIntClass = new Class();
+    gClassClass = new Class(nullptr, Value::Tag::Object);
+    gClassClass->directClass = gClassClass;
+    gIntClass = new Class(gClassClass, Value::Tag::Int);
 
     // TODO: need to install a `+` handler into the `Int` class...
 
@@ -329,7 +355,7 @@ Setting up the Built-in Classes
     func->func = PRIMITIVE_FUNC(add);
 
     auto handler = new MessageHandler();
-    handler->selector = makeSymbol("+");
+    handler->selector = Symbol::get("+");
     handler->func = func;
 
     handler->next = clazz->messageHandlers;
@@ -339,11 +365,16 @@ Setting up the Built-in Classes
     func->func = PRIMITIVE_FUNC(print);
 
     handler = new MessageHandler();
-    handler->selector = makeSymbol("print");
+    handler->selector = Symbol::get("print");
     handler->func = func;
 
     handler->next = clazz->messageHandlers;
     clazz->messageHandlers = handler;
+
+    // create the Object class
+    clazz = new Class(gClassClass, Value::Tag::Object);
+
+    gBuiltinEnv.assign("Class", clazz);
 
 
 Outline of the Interpreter
@@ -351,18 +382,6 @@ Outline of the Interpreter
 
     //<<file:smalltalk.cpp>>=
     <<interpreter program>>
-
-    //<<types>>+=
-    <<value declarations>>
-    <<bytecode types>>
-    <<smalltalk types>>
-    <<smalltalk function declarations>>
-    <<bytecode declarations>>
-
-    //<<subroutines>>+=
-    <<bytecode definitions>>
-    <<lexer and parser>>
-    <<smalltalk function definitions>>
 
 Interactive Interpreter
 -----------------------
@@ -392,7 +411,7 @@ Interactive Interpreter
     <<smalltalk types>>+=
     Value evalLine(StringSpan line);
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value evalLine(StringSpan line)
     {
         StringInputStream stream(line);

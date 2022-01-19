@@ -2,3 +2,5 @@
 
 (1 + 2) print;
 
+Object subclass #Foo
+Foo new

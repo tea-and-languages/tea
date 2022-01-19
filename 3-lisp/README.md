@@ -29,7 +29,7 @@ The fundamental value types in Lisp serve a dual role, both as values to be mani
 
 In order to read in a program to execute it, we need a way to read values from an input stream:
 
-	<<subroutines>>+=
+	<<definitions>>+=
 	Value read(InputStream& stream)
 	{
 		skipSpace(stream);
@@ -39,7 +39,7 @@ In order to read in a program to execute it, we need a way to read values from a
 
     <<handle unknown input for read>>=
     error(getLoc(stream), "unexpected input");
-    return makeNil();
+    return Value::getNil();
 
 Because of homoiconicity, these two functions give us multiple facilities.
 The `print` function can be used to print the values manipulated by a program, but can also be used to print programs.
@@ -50,7 +50,10 @@ The `read` function can be used by the interpreter to read in source code, but c
 Because values in Lisp are used to represent both data and code, the core of our interpreter is a function for evaluating an expression represented as a `Value`.
 This function is traditionally called `eval`.
 
-	<<subroutines>>+=
+    <<value declarations>>+=
+	Value eval(Value value, Value env);
+
+	<<definitions>>+=
 	Value eval(Value value, Value env)
 	{
 		<<eval implementation>>
@@ -59,7 +62,7 @@ This function is traditionally called `eval`.
 As with `print`, the way to evaluate an expression will depend on its type.
 
 	<<eval implementation>>=
-	switch(getType(value))
+	switch(value.getTag())
 	{
 		<<eval cases>>
 	}
@@ -107,6 +110,18 @@ Each concrete type of value needs to define a few things:
 
 While that might look like a lot of steps, recall that because of homoiconicity each of these types serves double duty as a data type for programs to manipulate *and*  piece of syntax that can be used when writing programs.
 
+    <<constants>>+=
+    #define GET_OBJECT_TYPE(NAME) Value::Tag::NAME
+
+    <<object type representation>>=
+    typedef Value::Tag ObjectType;
+
+    <<definitions>>+=
+    Value::Tag Value::getObjectTag(Object* object)
+    {
+        return object->type;
+    }
+
 ### Integers
 
 We recognize an integer when `read`ing input by looking for a digit:
@@ -114,12 +129,12 @@ We recognize an integer when `read`ing input by looking for a digit:
 	<<read cases>>+=
 	if(isDigit(peekChar(stream)))
 	{
-		int val = 0;
+		IntVal val = 0;
 		while(isDigit(peekChar(stream)))
 		{
 			val = val*10 + (readChar(stream) - '0');
 		}
-		return makeInt(val);
+		return val;
 	}
 
 ### Booleans
@@ -134,11 +149,11 @@ We recognize an integer when `read`ing input by looking for a digit:
         readChar(stream);
         switch(readChar(stream))
         {
-        case 't': return makeBool(true);
-        case 'f': return makeBool(false);
+        case 't': return true;
+        case 'f': return false;
         default:
             error(getLoc(stream), "unexpected character after '#'");
-            return makeNil();
+            return Value::getNil();
         }
 	}
 
@@ -158,49 +173,32 @@ In many Lisp dialects, nil is treated as false for the purposes of `if` and othe
 
 
 All empty lists are equivalent, so it would be wasteful to create multiple objects to represent nil.
-We therefore define the `makeNil` factory function to return the same `static` variable on every invocation.
+We therefore define the `Value::getNil` factory function to return the same `static` variable on every invocation.
 
 
 ### Pairs
 
 A non-empty list is represented as a pair, with a *head* that is the first element of the list, and a *tail* that is a list of those elements after the first.
 
-	<<indirect type tags>>+=
-	TYPE_TAG_PAIR,
+    <<object cases>>+=
+    OBJECT_CASE(Pair)
 
-	<<types>>+=
-    TypeTag getType(Value value)
-    {
-        return getTag(value);
-    }
-	struct Pair
+    <<value declarations>>+=
+	struct Pair : Object
 	{
+        Pair(Value head, Value tail);
+
 		Value head;
 		Value tail;
 	};
-	Value makePair(Value head, Value tail)
+
+	<<definitions>>+=
+	Pair::Pair(Value h, Value t)
+        : Object(GET_OBJECT_TYPE(Pair))
 	{
-		Pair* pair = new Pair();
-		pair->head = head;
-		pair->tail = tail;
-		return tagIndirectValue(pair, TYPE_TAG_PAIR);
+        this->head = h;
+        this->tail = t;
 	}
-    Pair* asPair(Value value)
-    {
-        if(getTag(value) == TYPE_TAG_PAIR)
-            return (Pair*) getIndirectValuePtr(value);
-        return NULL;
-    }
-    Value& head(Value value)
-    {
-        assert(asPair(value));
-        return asPair(value)->head;
-    }
-    Value& tail(Value value)
-    {
-        assert(asPair(value));
-        return asPair(value)->tail;
-    }
 
 For historical reasons, many Lisps refer to the head of a list as "car," the tail as "cdr," and the operation to make a pair as "cons."
 In our implementation we favor directness over tradition.
@@ -214,7 +212,7 @@ Such an "associative list" or *a-list* is a commonly-used structure in Lisp.
 The empty list, nil, is written `()`.
 
 	<<print cases>>
-	case TYPE_NIL:
+	case Value::Tag::Nil:
 		printf("()");
 		break;
 
@@ -231,18 +229,20 @@ For example, the proper list `(a . (b . ()))` can be written `(a b)`.
 When printing a pair, we want to use the most compact notation possible.
 
 	<<print cases>>+=
-	case TYPE_TAG_PAIR:
+	case Value::Tag::Pair:
 	{
+        Pair* pair = value.asPair();
+
 		printf("(");
-        print(head(value));
-		Value rest = tail(value);
-        while(getType(rest) == TYPE_TAG_PAIR)
+        print(pair->head);
+		Value rest = pair->tail;
+        while(auto restPair = rest.asPair())
 		{
 			printf(" ");
-			print(head(rest));
-            rest = tail(rest);
+			print(restPair->head);
+            rest = restPair->tail;
 		}
-        if(getType(rest) == TYPE_NIL)
+        if(!rest.isNil())
 		{
 			printf(" . ");
 			print(rest);
@@ -290,11 +290,11 @@ Lists both empty and non-empty are enclosed in parentheses, so we check for an o
 			}
 
 			Value value = read(stream);
-			Value pair = makePair(value, makeNil());
+			Pair* pair = new Pair(value, Value::getNil());
 			*link = pair;
-			link = &tail(pair);
+			link = &pair->tail;
 		}
-		*link = makeNil();
+		*link = Value::getNil();
 		return result;
 	}
 
@@ -311,13 +311,14 @@ When a non-empty list like `(f a0 a1 a2)` is evauated as an expression it usuall
 There are some special cases we will deal with shortly, but for now let's handle the common case.
 
 	<<eval cases>>+=
-	case TYPE_TAG_PAIR:
+	case Value::Tag::Pair:
 	{
-        Value funcExpr = head(value);
-        Value argExprs = tail(value);
+        auto pair = value.getPair();
+        Value funcExpr = pair->head;
+        Value argExprs = pair->tail;
         Value func = eval(funcExpr, env);
 
-        switch(getType(func))
+        switch(func.getTag())
         {
         default:
             return apply(func, evalList(argExprs, env));
@@ -327,32 +328,32 @@ There are some special cases we will deal with shortly, but for now let's handle
 	}
 	break;
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value evalList(Value list, Value env)
     {
         Value result;
         Value* link = &result;
 
         Value rest = list;
-        while(getType(rest) == TYPE_TAG_PAIR)
+        while(Pair* restPair = rest.asPair())
         {
-            Value argExpr = head(rest);
+            Value argExpr = restPair->head;
             Value arg = eval(argExpr, env);
 
-            Value argPair = makePair(arg, makeNil());
+            Pair* argPair = new Pair(arg, Value::getNil());
             *link = argPair;
-            link = &tail(argPair);
+            link = &argPair->tail;
 
-            rest = tail(rest);
+            rest = restPair->tail;
         }
         *link = eval(rest, env);
         return result;
     }
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value apply(Value func, Value args)
     {
-        switch(getType(func))
+        switch(func.getTag())
         {
         <<apply cases>>
         }
@@ -361,58 +362,69 @@ There are some special cases we will deal with shortly, but for now let's handle
     <<apply cases>>+=
     default:
         fprintf(stderr, "couldn't apply value of this type");
-        return makeNil();
+        return Value::getNil();
 
 Primitive Functions
 ------------------
 
-	<<indirect type tags>>+=
-    TYPE_PRIMITIVE_FUNC,
+    <<object cases>>+=
+    OBJECT_CASE(PrimitiveFuncObj)
 
-    <<types>>+=
-    struct PrimitiveFuncObj
+    <<value declarations>>+=
+    struct PrimitiveFuncObj : Object
     {
+        PrimitiveFuncObj(PrimitiveFunc value);
+
         PrimitiveFunc value;
     };
 
-	<<types>>+=
-    Value makePrimitiveFunc(PrimitiveFunc value)
-	{
-		PrimitiveFuncObj* result = new PrimitiveFuncObj();
-		result->value = value;
-        return tagIndirectValue(result, TYPE_PRIMITIVE_FUNC);
-	}
-    PrimitiveFunc getPrimitiveFunc(Value value)
-	{
-        assert(getType(value) == TYPE_PRIMITIVE_FUNC);
-        return ((PrimitiveFuncObj*) getIndirectValuePtr(value))->value;
-	}
+	<<definitions>>+=
+    PrimitiveFuncObj::PrimitiveFuncObj(PrimitiveFunc value)
+        : Object(GET_OBJECT_TYPE(PrimitiveFuncObj))
+    {
+        this->value = value;
+    }
+
+    <<forward type declarations>>+=
+    #define OBJECT_CASE(NAME) struct NAME;
+    <<object cases>>
+    #undef OBJECT_CASE
+
+
+    <<value members>>+=
+    #define OBJECT_CASE(NAME) \
+        NAME* as##NAME() const { return (NAME*) asObject(Value::Tag::NAME); }   \
+        NAME* get##NAME() const { /* TODO: assert */ return (NAME*) asObject(Value::Tag::NAME); }   \
+        /*end*/
+    <<object cases>>
+    #undef OBJECT_CASE
 
     <<primitive func context members>>+=
     #if 0
     Value readHead(Value* ioList);
     #endif
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value PrimitiveFuncContext::readArg()
     {
-        if(getType(args) == TYPE_TAG_PAIR)
+        if(Pair* argsPair = args.asPair())
         {
-            Value result = head(args);
-            args = tail(args);
+            Value result = argsPair->head;
+            args = argsPair->tail;
             return result;
         }
         else
         {
             fprintf(stderr, "error: expected a pair");
-            return makeNil();
+            return Value::getNil();
         }
     }
 
     <<apply cases>>+=
-    case TYPE_PRIMITIVE_FUNC:
+    case Value::Tag::PrimitiveFuncObj:
     {
-        auto primitive = getPrimitiveFunc(func);
+        auto primitiveFuncObj = func.getPrimitiveFuncObj();
+        auto primitive = primitiveFuncObj->value;
 
         PrimitiveFuncContext context;
         context.args = args;
@@ -428,28 +440,24 @@ Primitive Functions
 Primitive Syntax
 ----------------
 
-	<<indirect type tags>>+=
-    TYPE_PRIMITIVE_SYNTAX,
+    <<object cases>>+=
+    OBJECT_CASE(PrimitiveSyntaxObj)
 
-    <<types>>+=
+    <<value declarations>>+=
     typedef PrimitiveFunc PrimitiveSyntax;
-    struct PrimitiveSyntaxObj
+    struct PrimitiveSyntaxObj : Object
     {
+        PrimitiveSyntaxObj(PrimitiveSyntax value);
+
         PrimitiveSyntax value;
     };
 
-	<<types>>+=
-    Value makePrimitiveSyntax(PrimitiveSyntax value)
+	<<definitions>>+=
+    PrimitiveSyntaxObj::PrimitiveSyntaxObj(PrimitiveSyntax value)
+        : Object(GET_OBJECT_TYPE(PrimitiveSyntaxObj))
 	{
-		PrimitiveSyntaxObj* result = new PrimitiveSyntaxObj();
-		result->value = value;
-		return tagIndirectValue(result, TYPE_PRIMITIVE_SYNTAX);
-	}
-    PrimitiveSyntax getPrimitiveSyntax(Value value)
-	{
-        assert(getType(value) == TYPE_PRIMITIVE_SYNTAX);
-        return ((PrimitiveSyntaxObj*) getIndirectValuePtr(value))->value;
-	}
+        this->value = value;
+    }
 
     <<primitive func declarations>>+=
     PRIMITIVE_FUNC_DECL(if);
@@ -462,14 +470,15 @@ Primitive Syntax
 
         Value thenExpr = readArg();
 
-        Value elseExpr = areAnyArgsLeft() ? readArg() : makeNil();
+        Value elseExpr = areAnyArgsLeft() ? readArg() : Value::getNil();
 
-        if(getType(condition) != TYPE_BOOL)
+        BoolValue* conditionBool = condition.asBool();
+        if(conditionBool)
         {
-            return makeNil();
+            return Value::getNil();
         }
 
-        if(getBoolVal(condition))
+        if(*conditionBool)
         {
             return eval(thenExpr, env);
         }
@@ -477,13 +486,15 @@ Primitive Syntax
     }
 
     <<other pair eval cases>>+=
-    case TYPE_PRIMITIVE_SYNTAX:
+    case Value::Tag::PrimitiveSyntaxObj:
     {
+        auto primitiveSyntaxObj = func.asPrimitiveSyntaxObj();
+
         PrimitiveFuncContext context;
         context.args = argExprs;
         context.env = env;
 
-        auto prim = getPrimitiveSyntax(func);
+        auto prim = primitiveSyntaxObj->value;
         Value result = (context.*prim)();
         return result;
     }
@@ -491,75 +502,81 @@ Primitive Syntax
     <<primitive func context members>>+=
     Value env;
 
-    bool areAnyArgsLeft() const { return getTag(args) != TYPE_NIL; }
+    bool areAnyArgsLeft() const { return !args.isNil(); }
 
 
 
 User-Defined Functions
 ----------------------
 
-	<<indirect type tags>>+=
-	TYPE_USER_FUNC,
+    <<object cases>>+=
+    OBJECT_CASE(UserFunc)
 
-    <<types>>+=
+    <<forward type declarations>>+=
+    struct UserFuncObj;
+
+    <<value declarations>>+=
     struct UserFuncObj
     {
+        UserFuncObj(Value params, Value body, Value env);
+
         Value params;
         Value body;
         Value env;
     };
 
-	<<types>>+=
-    Value makeUserFunc(Value params, Value body, Value env)
+    <<value members>>+=
+    UserFuncObj* asUserFunc();
+
+	<<definitions>>+=
+    UserFuncObj::UserFuncObj(Value params, Value body, Value env)
 	{
-		UserFuncObj* result = new UserFuncObj();
-        result->params = params;
-        result->body = body;
-        result->env = env;
-        return tagIndirectValue(result, TYPE_USER_FUNC);
+        this->params = params;
+        this->body = body;
+        this->env = env;
 	}
-    UserFuncObj* getUserFunc(Value value)
+    UserFuncObj* Value::asUserFunc()
 	{
-        assert(getType(value) == TYPE_USER_FUNC);
-        return (UserFuncObj*) getIndirectValuePtr(value);
+        return (UserFuncObj*) asObject(Value::Tag::UserFunc);
 	}
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value evalBody(Value body, Value env)
     {
-        Value result = makeNil();
+        Value result = Value::getNil();
 
-        while(getType(body) == TYPE_TAG_PAIR)
+        while(Pair* bodyPair = body.asPair())
         {
-            result = eval(head(body), env);
-            body = tail(body);
+            result = eval(bodyPair->head, env);
+            body = bodyPair->tail;
         }
 
         return result;
     }
 
     <<apply cases>>+=
-    case TYPE_USER_FUNC:
+    case Value::Tag::UserFunc:
     {
-        UserFuncObj* userFunc = getUserFunc(func);
+        UserFuncObj* userFunc = func.asUserFunc();
 
         // bind params to args
-        Value paramEnv = makePair(makeNil(), userFunc->env);
+        Pair* paramEnv = new Pair(Value::getNil(), userFunc->env);
 
         Value params = userFunc->params;
-        while(getType(params) == TYPE_TAG_PAIR)
+        while(Pair* paramsPair = params.asPair())
         {
-            Value param = head(params);
-            params = tail(params);
+            Value param = paramsPair->head;
+            params = paramsPair->tail;
 
-            Value arg = head(args);
-            args = tail(args);
+            Pair* argsPair = args.getPair();
+            Value arg = argsPair->head;
+            args = argsPair->tail;
 
             define(paramEnv, param, arg);
         }
 
 		// handle the "rest" argument, if any
-		if(getType(params) != TYPE_NIL)
+		if(!params.isNil())
 		{
 			define(paramEnv, params, args);
 		}
@@ -577,14 +594,14 @@ User-Defined Functions
         Value params = readArg();
         Value body = readRestArg();
 
-        return makeUserFunc(params, body, env);
+        return new UserFuncObj(params, body, env);
     }
 
     <<primitive func context members>>+=
     Value readRestArg()
     {
         Value result = args;
-        args = makeNil();
+        args = Value::getNil();
         return result;
     }
 
@@ -593,60 +610,68 @@ User-Defined Functions
 Symbols
 -------
 
-
-
 	<<print cases>>+=
-	case TYPE_TAG_SYMBOL:
-		printf("%s", getSymbolVal(value));
+	case Value::Tag::Symbol:
+        {
+            auto symbol = value.asSymbol();
+            auto text = symbol->text;
+            printf("%.*s", (int)text.getSize(), text.begin());
+        }
 		break;
 
 	<<read cases>>+=
 	if(isSymbolChar(peekChar(stream)))
 	{
-		char buffer[1024];
-		char* cursor = buffer;
+        static StringBuffer buffer;
+        buffer.reset();
+
 		while(isSymbolChar(peekChar(stream)) || isDigit(peekChar(stream)))
 		{
-			*cursor++ = readChar(stream);
+            buffer.writeChar(readChar(stream));
 		}
-		*cursor++ = 0;
-		return makeSymbol(buffer);
+		return Symbol::get(buffer.getText());
 	}
 
-    <<subroutines>>+=
+    <<definitions>>+=
     bool isSymbolChar(int c)
     {
         return isalpha(c) || strchr("!@#$%^&*:;\\|-_+=/?<>,.", c);
     }
 
-    <<subroutine declarations>>+=
+    <<declarations>>+=
     bool isSymbolChar(int c);
 
 
 Symbols are our first case of a value that does *not* evaluate to itself.
 
 	<<eval cases>>+=
-	case TYPE_TAG_SYMBOL:
+	case Value::Tag::Symbol:
 	{
-		Value scope = env;
-        while(getType(scope) == TYPE_TAG_PAIR)
-		{
-			Value bindingList = head(scope);
-			while(getType(bindingList) == TYPE_TAG_PAIR)
-			{
-				Value binding = head(bindingList);
-                Value bindingName = head(binding);
-                if(areValuesIdentical(bindingName, value))
-                    return tail(binding);
+        Symbol* symbol = value.getSymbol();
 
-				bindingList = tail(bindingList);
+		Value scope = env;
+        while(Pair* scopePair = scope.asPair())
+		{
+			Value bindingList = scopePair->head;
+            while(Pair* bindingListPair = bindingList.asPair())
+			{
+				Value binding = bindingListPair->head;
+                Pair* bindingPair = binding.asPair();
+                if(!bindingPair)
+                    continue;
+
+                Value bindingName = bindingPair->head;
+                if(areValuesIdentical(bindingName, symbol))
+                    return bindingPair->tail;
+
+				bindingList = bindingListPair->tail;
 			}
 
-			scope = tail(scope);
+			scope = scopePair->tail;
 		}
 
-		fprintf(stderr, "error: undefined identifier '%s'\n", getSymbolVal(value));
-		return makeNil();
+        error(SourceLoc(), "undefined identifier '%s'\n", symbol->text.begin());
+		return Value::getNil();
 	}
 	break;
 
@@ -654,31 +679,39 @@ Symbols are our first case of a value that does *not* evaluate to itself.
 Macros
 ------
 
-	<<indirect type tags>>+=
-    TYPE_MACRO,
+    <<object cases>>+=
+    OBJECT_CASE(Macro)
 
-    <<types>>+=
+    <<forward type declarations>>+=
+    struct MacroObj;
+
+    <<value declarations>>+=
     struct MacroObj
     {
+        MacroObj(Value transformer);
+
         Value transformer;
     };
 
-	<<types>>+=
-    Value makeMacro(Value transformer)
+    <<value members>>+=
+    MacroObj* asMacro();
+
+	<<definitions>>+=
+    MacroObj::MacroObj(Value transformer)
 	{
-		MacroObj* result = new MacroObj();
-		result->transformer = transformer;
-        return tagIndirectValue(result, TYPE_MACRO);
+        this->transformer = transformer;
 	}
-    Value getMacroTransformer(Value value)
+    MacroObj* Value::asMacro()
 	{
-        assert(getType(value) == TYPE_MACRO);
-        return ((MacroObj*) getIndirectValuePtr(value))->transformer;
+        return (MacroObj*) asObject(Value::Tag::Macro);
 	}
 
     <<other pair eval cases>>+=
-    case TYPE_MACRO:
-        return eval(apply(getMacroTransformer(func), argExprs), env);
+    case Value::Tag::Macro:
+    {
+        auto macro = value.asMacro();
+        return eval(apply(macro->transformer, argExprs), env);
+    }
 
 	<<primitive func declarations>>+=
     PRIMITIVE_FUNC_DECL(macro);
@@ -687,7 +720,7 @@ Macros
     PRIMITIVE_FUNC_DEF(macro)
 	{
 		Value transformer = readArg();
-		return makeMacro(transformer);
+        return new MacroObj(transformer);
 	}
 
 Quotation
@@ -708,20 +741,22 @@ Quotation
 	{
 		readChar(stream);
 		Value arg = read(stream);
-		return makePair(
-			makeSymbol("quote"),
-			makePair(arg, makeNil()));
+		return new Pair(
+			Symbol::get("quote"),
+			new Pair(arg, Value::getNil()));
 	}
 
 
 Homoiconicity
 -------------
 
-	<<subroutines>>+=
+	<<definitions>>+=
 	void define(Value env, Value key, Value val)
 	{
-		Value binding = makePair(key,val);
-        head(env) = makePair(binding, head(env));
+        Pair* envPair = env.getPair();
+
+		Value binding = new Pair(key,val);
+        envPair->head = new Pair(binding, envPair->head);
 	}
 
     <<primitive func declarations>>+=
@@ -734,9 +769,6 @@ Homoiconicity
     <<primitive func definitions>>+=
     PRIMITIVE_FUNC_DEF(define)
 	{
-        extern Value eval(Value, Value);
-        extern void define(Value, Value, Value);
-
 		Value name = readArg();
         Value body = readArg();
 		Value value = eval(body, env);
@@ -747,61 +779,53 @@ Homoiconicity
 	}
     PRIMITIVE_FUNC_DEF(pair)
 	{
-        extern Value makePair(Value, Value);
-
 		Value head = readArg();
 		Value tail = readArg();
-		return makePair(head, tail);
+		return new Pair(head, tail);
 	}
     PRIMITIVE_FUNC_DEF(isPair)
 	{
-        extern TypeTag getType(Value);
-
 		Value arg = readArg();
-        return makeBool(getType(arg) == TYPE_TAG_PAIR);
+        return arg.asPair() != nullptr;
 	}
     PRIMITIVE_FUNC_DEF(head)
 	{
-        extern Value& head(Value);
-
-		Value pair = readArg();
-        return head(pair);
+		Pair* pair = readArg().getPair();
+        return pair->head;
 	}
     PRIMITIVE_FUNC_DEF(tail)
 	{
-        extern Value& tail(Value);
-
-		Value pair = readArg();
-        return tail(pair);
+		Pair* pair = readArg().getPair();
+        return pair->tail;
 	}
 
-    <<subroutines>>+=
+    <<definitions>>+=
     Value gEnv;
 
     <<program initialization>>=
-	Value env = makePair(makeNil(), makeNil());
+	Value env = new Pair(Value::getNil(), Value::getNil());
     gEnv = env;
 
     <<register language primitives>>+=
-    define(env, makeSymbol("if"),       makePrimitiveSyntax(PRIMITIVE_FUNC(if)));
-    define(env, makeSymbol("lambda"),   makePrimitiveSyntax(PRIMITIVE_FUNC(lambda)));
-    define(env, makeSymbol("define"),   makePrimitiveSyntax(PRIMITIVE_FUNC(define)));
-    define(env, makeSymbol("quote"),    makePrimitiveSyntax(PRIMITIVE_FUNC(quote)));
+    define(env, Symbol::get("if"),       new PrimitiveSyntaxObj(PRIMITIVE_FUNC(if)));
+    define(env, Symbol::get("lambda"),   new PrimitiveSyntaxObj(PRIMITIVE_FUNC(lambda)));
+    define(env, Symbol::get("define"),   new PrimitiveSyntaxObj(PRIMITIVE_FUNC(define)));
+    define(env, Symbol::get("quote"),    new PrimitiveSyntaxObj(PRIMITIVE_FUNC(quote)));
 
-    define(env, makeSymbol("+"), makePrimitiveFunc(PRIMITIVE_FUNC(add)));
-    define(env, makeSymbol("-"), makePrimitiveFunc(PRIMITIVE_FUNC(sub)));
-    define(env, makeSymbol("*"), makePrimitiveFunc(PRIMITIVE_FUNC(mul)));
-    define(env, makeSymbol("/"), makePrimitiveFunc(PRIMITIVE_FUNC(div)));
+    define(env, Symbol::get("+"), new PrimitiveFuncObj(PRIMITIVE_FUNC(add)));
+    define(env, Symbol::get("-"), new PrimitiveFuncObj(PRIMITIVE_FUNC(sub)));
+    define(env, Symbol::get("*"), new PrimitiveFuncObj(PRIMITIVE_FUNC(mul)));
+    define(env, Symbol::get("/"), new PrimitiveFuncObj(PRIMITIVE_FUNC(div)));
 
-    define(env, makeSymbol(">"),    makePrimitiveFunc(PRIMITIVE_FUNC(cmp_gt)));
+    define(env, Symbol::get(">"),    new PrimitiveFuncObj(PRIMITIVE_FUNC(cmp_gt)));
 
-    define(env, makeSymbol("macro"),    makePrimitiveFunc(PRIMITIVE_FUNC(macro)));
-    define(env, makeSymbol("exit"),     makePrimitiveFunc(PRIMITIVE_FUNC(exit)));
-    define(env, makeSymbol("print"),    makePrimitiveFunc(PRIMITIVE_FUNC(print)));
-    define(env, makeSymbol("pair"),     makePrimitiveFunc(PRIMITIVE_FUNC(pair)));
-    define(env, makeSymbol("pair?"),    makePrimitiveFunc(PRIMITIVE_FUNC(isPair)));
-    define(env, makeSymbol("head"),     makePrimitiveFunc(PRIMITIVE_FUNC(head)));
-    define(env, makeSymbol("tail"),     makePrimitiveFunc(PRIMITIVE_FUNC(tail)));
+    define(env, Symbol::get("macro"),    new PrimitiveFuncObj(PRIMITIVE_FUNC(macro)));
+    define(env, Symbol::get("exit"),     new PrimitiveFuncObj(PRIMITIVE_FUNC(exit)));
+    define(env, Symbol::get("print"),    new PrimitiveFuncObj(PRIMITIVE_FUNC(print)));
+    define(env, Symbol::get("pair"),     new PrimitiveFuncObj(PRIMITIVE_FUNC(pair)));
+    define(env, Symbol::get("pair?"),    new PrimitiveFuncObj(PRIMITIVE_FUNC(isPair)));
+    define(env, Symbol::get("head"),     new PrimitiveFuncObj(PRIMITIVE_FUNC(head)));
+    define(env, Symbol::get("tail"),     new PrimitiveFuncObj(PRIMITIVE_FUNC(tail)));
 
     <<run interactive interpreter>>=
 	<<read-eval-print loop>>
@@ -845,7 +869,7 @@ Prelude
 
 	load(preludeStream, env);
 
-	<<subroutines>>+=
+	<<definitions>>+=
 	void load(InputStream& stream, Value env)
 	{
 		for(;;)
@@ -862,7 +886,8 @@ Prelude
 Outline of the Interpreter
 ------------------------------------
 
-    <<subroutine declarations>>+=
+    <<declarations>>+=
+    <<value declarations>>
     Value evalList(Value list, Value env);
     Value apply(Value func, Value args);
 	void define(Value env, Value key, Value val);
@@ -871,13 +896,10 @@ Outline of the Interpreter
     //<<file:lisp.cpp>>=
     <<interpreter program>>
 
-    //<<utility code>>+=
-    <<value declarations>>
-
 Extras
 ------
 
-	<<subroutines>>+=
+	<<definitions>>+=
     void readSourceStream(InputStream& stream)
 	{
         load(stream, gEnv);
